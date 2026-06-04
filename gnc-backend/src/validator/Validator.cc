@@ -206,7 +206,57 @@ ClauseResult run_C24(const nlohmann::json&) { return stub("C24", "abort_policy p
 ClauseResult run_C25(const nlohmann::json&) { return stub("C25", "CAN utilisation budget"); }
 
 // --------------------------------------------------------------------------
-// run_all — fixed order; FE renders the table in the same order.
+// Canonical clause-spec table (single source of truth for the C-map).
+// Titles are frozen here and mirror the Validator.h header comments. Every
+// clause is `required` (fail-closed) except genuinely conditional ones:
+//   C13 — seeker block, only meaningful when the vehicle is seeker_capable.
+// As stub clauses are promoted to real implementations they keep their entry
+// here; required clauses that are still stubbed (NotApplicable) block the
+// overall verdict via aggregate() until implemented.
+// --------------------------------------------------------------------------
+const std::vector<ClauseSpec>& clause_specs()
+{
+    static const std::vector<ClauseSpec> specs = {
+        {"C1",  "Schema validation",                     true},
+        {"C2",  "Stage mass > 0",                        true},
+        {"C3",  "CG / inertia mass-coupling",            true},
+        {"C4",  "Body-frame convention",                 true},
+        {"C5",  "Reference geometry > 0",                true},
+        {"C6",  "Aero CSV monotonicity",                 true},
+        {"C7",  "Thrust curve sanity",                   true},
+        {"C8",  "Atmosphere altitude coverage",          true},
+        {"C9",  "Damping coefficient sign",              true},
+        {"C10", "Fin-set geometry",                      true},
+        {"C11", "Hardware mapping resolves",             true},
+        {"C12", "Pyro count vs separation events",       true},
+        {"C13", "Seeker block (when seeker_capable)",    false},
+        {"C14", "Autopilot capable_modes coverage",      true},
+        {"C15", "num_stages == len(stages)",             true},
+        {"C16", "stage_index monotonic",                 true},
+        {"C17", "Terminal / separation rules",           true},
+        {"C18", "Pyro IDs unique per stage",             true},
+        {"C19", "Aerospike implementation_status",       true},
+        {"C20", "controller_ref resolves in library",    true},
+        {"C21", "actuator_ref resolves in library",      true},
+        {"C22", "Gain-set completeness vs algorithm",    true},
+        {"C23", "Launch-rail vs initial attitude",       true},
+        {"C24", "abort_policy present",                  true},
+        {"C25", "CAN utilisation budget",                true},
+    };
+    return specs;
+}
+
+bool clause_required(const std::string& id)
+{
+    for (const auto& s : clause_specs()) {
+        if (s.id == id) return s.required;
+    }
+    return true;  // unknown clause id ⇒ fail-closed
+}
+
+// --------------------------------------------------------------------------
+// run_all — fixed order; FE renders the table in the same order. Each result's
+// `required` flag is populated from clause_specs() so aggregate() is fail-closed.
 // --------------------------------------------------------------------------
 Report run_all(const nlohmann::json& doc)
 {
@@ -237,6 +287,12 @@ Report run_all(const nlohmann::json& doc)
     r.clauses.push_back(run_C23(doc));
     r.clauses.push_back(run_C24(doc));
     r.clauses.push_back(run_C25(doc));
+
+    // Stamp the required flag from the canonical spec table so aggregation
+    // is fail-closed (INV-1) regardless of what each clause function set.
+    for (auto& c : r.clauses) {
+        c.required = clause_required(c.clause);
+    }
     return r;
 }
 

@@ -112,17 +112,32 @@ TEST_F(BaTemplateTest, C17_TerminalAndSeparationRulesHold)
 }
 
 // --------------------------------------------------------------------------
-// Aggregate: until the remaining 20 clauses are implemented, the report's
-// overall verdict will be WARN (NotApplicable counts as not-failing). It
-// MUST NOT be FAIL on the canonical BA template.
+// Fail-closed aggregation (INV-1). The validator is deliberately fail-closed:
+// while required clauses remain stubbed (NotApplicable), the BA template's
+// overall verdict MUST be FAIL — a template may not be certified while
+// physics-/safety-relevant clauses are skipped. The Wave-1 clauses still PASS
+// individually; it is the un-implemented required clauses that block.
+// (This replaces the old AggregateNotFail test, which asserted the previous
+// false-PASS behavior the v8 audit flagged as CRITICAL.)
 // --------------------------------------------------------------------------
-TEST_F(BaTemplateTest, AggregateNotFail)
+TEST_F(BaTemplateTest, AggregateFailsClosedWhileRequiredClausesStubbed)
 {
     auto report = validator::run_all(result_.data);
     auto agg    = validator::aggregate(report.clauses);
-    EXPECT_NE(agg, validator::Verdict::Fail)
-        << "BA template must not fail validation. JSON: "
+    EXPECT_EQ(agg, validator::Verdict::Fail)
+        << "BA must FAIL overall while required clauses are stubbed. JSON: "
         << to_json(report).dump(2);
+}
+
+// Every clause result carries its `required` flag, and it matches the
+// canonical spec table.
+TEST_F(BaTemplateTest, RunAllStampsRequiredFromSpecTable)
+{
+    auto report = validator::run_all(result_.data);
+    for (const auto& c : report.clauses) {
+        EXPECT_EQ(c.required, validator::clause_required(c.clause))
+            << "clause " << c.clause << " required flag desynced from spec";
+    }
 }
 
 // --------------------------------------------------------------------------
@@ -140,6 +155,9 @@ TEST_F(BaTemplateTest, ReportJsonContainsExpectedShape)
     // Spot-check ordering: C1 first, C25 last.
     EXPECT_EQ(j["clauses"].front()["clause"], "C1");
     EXPECT_EQ(j["clauses"].back()["clause"],  "C25");
+    // Each clause now exposes a `required` flag to the FE.
+    EXPECT_TRUE(j["clauses"].front().contains("required"));
+    EXPECT_TRUE(j["clauses"].front()["required"].is_boolean());
 }
 
 // --------------------------------------------------------------------------

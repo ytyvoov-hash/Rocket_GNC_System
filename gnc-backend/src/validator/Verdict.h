@@ -30,32 +30,51 @@ inline const char* to_string(Verdict v)
 }
 
 struct ClauseResult {
-    std::string clause;     // e.g. "C2"
+    std::string clause;       // e.g. "C2"
     Verdict     verdict;
     std::string message;
+    // Required clauses MUST be implemented AND PASS for the template to pass.
+    // A required clause that is un-implemented (NotApplicable) or errored
+    // blocks aggregation (fail-closed). Optional clauses may be skipped.
+    // `run_all` sets this from the canonical clause-spec table; the per-clause
+    // functions leave it at the safe default (required).
+    bool        required = true;
 };
 
 inline nlohmann::json to_json(const ClauseResult& r)
 {
     return {
-        {"clause",  r.clause},
-        {"verdict", to_string(r.verdict)},
-        {"message", r.message}
+        {"clause",   r.clause},
+        {"verdict",  to_string(r.verdict)},
+        {"message",  r.message},
+        {"required", r.required}
     };
 }
 
-// Aggregate report. `overall` is FAIL if any clause is FAIL,
-// else WARN if any is WARN, else PASS.
+// Aggregate report.
 struct Report {
     std::vector<ClauseResult> clauses;
     std::string               run_at;     // ISO-8601 timestamp; empty == not run
 };
 
+// Fail-closed aggregation (v8 invariant INV-1).
+//   overall == FAIL  if any clause is FAIL, OR any *required* clause is
+//                     un-implemented / not-run (NotApplicable);
+//   overall == WARN   else if any clause is WARN;
+//   overall == PASS   else (every required clause implemented and PASS).
+//
+// This deliberately replaces the previous behavior, where NotApplicable was
+// ignored and a template passing only the handful of implemented clauses
+// reported overall PASS while every physics-/safety-relevant clause was
+// silently skipped (a false PASS). An un-run required safety clause now
+// blocks certification rather than passing it. Optional clauses that are
+// NotApplicable do not block.
 inline Verdict aggregate(const std::vector<ClauseResult>& cs)
 {
     bool any_warn = false;
     for (const auto& c : cs) {
         if (c.verdict == Verdict::Fail) return Verdict::Fail;
+        if (c.required && c.verdict == Verdict::NotApplicable) return Verdict::Fail;
         if (c.verdict == Verdict::Warn) any_warn = true;
     }
     return any_warn ? Verdict::Warn : Verdict::Pass;
