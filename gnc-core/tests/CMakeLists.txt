@@ -22,6 +22,7 @@ add_executable(gnc_core_smoke_test
     sim_test.cc
     nav_eskf_test.cc
     alloc_test.cc
+    staging_test.cc
 )
 
 target_link_libraries(gnc_core_smoke_test
