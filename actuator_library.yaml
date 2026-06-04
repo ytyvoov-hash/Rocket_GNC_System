@@ -1,0 +1,83 @@
+# Actuator Library  (v5.4 §2.8)
+# Single project-level file referenced by every rocket template's fin_config.
+# Validated against schemas/actuator_library.schema.yaml.
+# Every mission lock writes the SHA-256 of this file into the locked mission file.
+
+schema_version: "v5.4"
+
+actuators:
+
+  # ------------------------------------------------------------------
+  # Default 4020-class servo  (BA reference baseline)
+  # ------------------------------------------------------------------
+  default_4020:
+    description: "Default 4020-class servo (BA reference baseline)"
+    model_type: second_order_with_delay
+    wn_rad_s: 2739.0
+    zeta: 0.0208
+    delay_s: 0.008
+    rate_max_deg_s: 75.0
+    delta_max_deg: 15.0
+    delta_min_deg: -15.0
+    deadband_deg: 0.0
+    backlash_deg: 0.0
+    config_type: X
+
+  # ------------------------------------------------------------------
+  # XQPOWER XQ-4020  (production candidate)
+  # ------------------------------------------------------------------
+  XQ-4020:
+    description: "XQPOWER XQ-4020 (production candidate)"
+    manufacturer: XQPOWER
+    part_number: XQ-4020
+    model_type: second_order_with_delay
+    wn_rad_s: 2618.0
+    zeta: 0.7
+    delay_s: 0.005
+    rate_max_deg_s: 428.0
+    delta_max_deg: 30.0
+    delta_min_deg: -30.0
+    deadband_deg: 0.1
+    backlash_deg: 0.2
+    config_type: X
+
+  # ------------------------------------------------------------------
+  # Fast first-order approximation for early tuning
+  # ------------------------------------------------------------------
+  fast_first_order:
+    description: "First-order approximation for early tuning"
+    model_type: first_order
+    tau_s: 0.01
+    rate_max_deg_s: 300.0
+    delta_max_deg: 25.0
+    delta_min_deg: -25.0
+
+  # ------------------------------------------------------------------
+  # Zero-dynamics ideal servo (analytic tests / SIL fixtures)
+  # ------------------------------------------------------------------
+  ideal_servo:
+    description: "Zero-dynamics ideal servo for analytic tests"
+    model_type: ideal
+    rate_max_deg_s: 100000.0
+    delta_max_deg: 25.0
+    delta_min_deg: -25.0
+
+  # ------------------------------------------------------------------
+  # Brushless electromechanical (BLDC + gearbox)
+  # ------------------------------------------------------------------
+  brushless_em:
+    description: "Electromechanical (BLDC + gearbox) with hinge-moment loading"
+    model_type: electromechanical
+    motor:
+      kt_Nm_per_A: 0.087
+      ke_Vs_per_rad: 0.087
+      R_ohm: 1.2
+      L_H: 1.5e-3
+      J_motor_kgm2: 4.5e-6
+    gearbox:
+      ratio: 80.0
+      efficiency: 0.85
+    rate_max_deg_s: 250.0
+    delta_max_deg: 20.0
+    delta_min_deg: -20.0
+    # hinge_moment_curve_csv: "data/hinge_moment.csv"   # optional, Phase 3.7 Q4

@@ -1,0 +1,110 @@
+╔══════════════════════════════════════════════════════════════════════════╗
+║          CarTracking4 — Serial Protocol Summary (USB 115200 8N1)       ║
+╚══════════════════════════════════════════════════════════════════════════╝
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+  TX: Android → MCU   |   17 Bytes   |   50 Hz (every 20ms)
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+  Header: 0xAA 0xCC
+
+  ┌──────┬────────────┬────────┬─────────────────────────────────────────┐
+  │ Byte │ Field      │ Type   │ Description                             │
+  ├──────┼────────────┼────────┼─────────────────────────────────────────┤
+  │  0   │ Header 1   │ uint8  │ 0xAA (sync)                             │
+  │  1   │ Header 2   │ uint8  │ 0xCC (sync)                             │
+  │ 2-3  │ Angle X    │ int16  │ Target angle X in degrees × 100 (LE)    │
+  │ 4-5  │ Angle Y    │ int16  │ Target angle Y in degrees × 100 (LE)    │
+  │ 6-7  │ Rate X     │ int16  │ Angular rate X in °/s × 100 (LE)        │
+  │ 8-9  │ Rate Y     │ int16  │ Angular rate Y in °/s × 100 (LE)        │
+  │ 10   │ Mode       │ uint8  │ Detection mode (see below)              │
+  │ 11   │ Target W   │ uint8  │ Target width in pixels                  │
+  │ 12   │ Target H   │ uint8  │ Target height in pixels                 │
+  │ 13   │ CPU Temp   │ uint8  │ CPU temperature °C                      │
+  │ 14   │ Reserved   │ uint8  │ 0x00                                    │
+  │15-16 │ CRC16      │ uint16 │ CRC-16/CCITT of bytes 0-13 (LE)         │
+  └──────┴────────────┴────────┴─────────────────────────────────────────┘
+
+  Encoding: float → int16 (× 100), Little-Endian
+  Example:  angleX = 12.34° → ax = 1234 → [0xD2, 0x04]
+
+  MCU Decode: float angleX = (int16_t)(buf[2] | (buf[3] << 8)) / 100.0f;
+
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+  RX: MCU → Android   |   9 Bytes   |   Async (200ms timeout)
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+  Header: 0x55 0xAA
+
+  ┌──────┬────────────┬────────┬─────────────────────────────────────────┐
+  │ Byte │ Field      │ Type   │ Description                             │
+  ├──────┼────────────┼────────┼─────────────────────────────────────────┤
+  │  0   │ Header 1   │ uint8  │ 0x55 (sync)                             │
+  │  1   │ Header 2   │ uint8  │ 0xAA (sync)                             │
+  │  2   │ Mode Cam   │ uint8  │ Camera mode command (see below)         │
+  │ 3-4  │ Yaw        │ int16  │ Yaw angle in degrees × 100 (LE)         │
+  │ 5-6  │ Pitch      │ int16  │ Pitch angle in degrees × 100 (LE)       │
+  │ 7-8  │ CRC16      │ uint16 │ CRC-16/CCITT of bytes 0-6 (BE)          │
+  └──────┴────────────┴────────┴─────────────────────────────────────────┘
+
+  Android Decode: yaw = (int16_t)(buf[3] | (buf[4] << 8)) / 100.0f;
+
+  ⚠ CRC byte order: TX = Little-Endian | RX = Big-Endian (high byte first)
+
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+  Mode Values
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+  ┌───────┬──────────────────┬──────────────────────────────────────────┐
+  │ Value │ Name             │ Meaning                                  │
+  ├───────┼──────────────────┼──────────────────────────────────────────┤
+  │ 0xBF  │ MODE_IDLE        │ System idle, no detection                │
+  │ 0xAC  │ MODE_SEARCHING   │ Searching for targets                    │
+  │ 0xAD  │ MODE_TRACK       │ Target locked, tracking active           │
+  │ 0xE4  │ MODE_OFF         │ Detection turned off                     │
+  └───────┴──────────────────┴──────────────────────────────────────────┘
+
+  MCU Commands (RX Mode Cam):
+    • 0xAC → Android starts detection
+    • 0xE4 → Android stops detection
+
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+  CRC-16/CCITT  |  Polynomial: 0x1021  |  Init: 0x0000
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+  uint16_t crc16(uint8_t *data, int count) {
+      uint16_t crc = 0;
+      for (int i = 0; i < count; i++) {
+          crc ^= (uint16_t)data[i] << 8;
+          for (int j = 0; j < 8; j++) {
+              if (crc & 0x8000)
+                  crc = (crc << 1) ^ 0x1021;
+              else
+                  crc <<= 1;
+          }
+      }
+      return crc;
+  }
+
+  TX: CRC = crc16(buf, 14)  →  buf[15] = CRC & 0xFF,  buf[16] = CRC >> 8
+  RX: CRC = crc16(buf, 7)   →  verify: (buf[8] << 8) | buf[7]
+
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+  Quick Reference — Frame Diagrams
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+  TX (17 bytes):
+  [AA][CC][aX_L][aX_H][aY_L][aY_H][rX_L][rX_H][rY_L][rY_H][Mode][W][H][Tmp][00][CRC_L][CRC_H]
+   0    1    2     3     4     5     6     7     8     9    10   11  12  13  14   15     16
+
+  RX (9 bytes):
+  [55][AA][ModeCam][Yaw_L][Yaw_H][Pitch_L][Pitch_H][CRC_H][CRC_L]
+   0    1    2       3      4       5        6        7       8
+
+╔══════════════════════════════════════════════════════════════════════════╗
+║  Physical: USB-Serial  |  115200 baud  |  8N1  |  No flow control      ║
+╚══════════════════════════════════════════════════════════════════════════╝

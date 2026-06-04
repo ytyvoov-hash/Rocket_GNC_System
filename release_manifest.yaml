@@ -1,0 +1,48 @@
+# Release Manifest  (v5.4 §1.0.5, clause C-RM)
+# Lists committed rockets for this release; CI's Tier 3 SIL is parametrised over this file.
+# CI fails if any committed_rockets entry is missing one of its four required artefacts
+# (golden, tolerances, scenarios, onboarding_report) per §0.3.3.
+
+schema_version: "v5.4"
+version: "0.1.0-dev"
+released_at: "TBD"
+
+committed_rockets:
+  - id: BA
+  type: sounding
+  notes: "Reference template; used for unit tests and golden-log validation."
+  required_artefacts:
+  golden: rockets/BA/golden/                  # >= 8 envelope cells (HDF5)
+  tolerances: rockets/BA/tolerances.yaml
+  scenarios: rockets/BA/scenarios.yaml
+  onboarding_report: rockets/BA/onboarding_report.md
+
+  # Path A and Path B signed-firmware hashes are filled by the firmware-signing
+  # pipeline at release time and verified at boot (§1.5.1, §10).
+  - dfg
+  - ES_273
+
+_copy
+_copy
+path_a:
+  firmware_sha256: null
+  signing_key_id: null
+
+path_b:
+  firmware_sha256: null
+  signing_key_id: null
+
+# Tier 3 SIL envelope grid generator: each rocket contributes
+#   rockets/<id>/envelope.yaml -> envelope_grid(envelope) -> >= 8 cells
+# parity_threshold is the Path A vs Path B comparison gate.
+sil_acceptance:
+  envelope_cells_min: 8
+  parity_threshold_pct: 90
+  appendix_c_tolerances: docs/appendix_C_tolerances.yaml
+
+# Operational decision per Decision 15: which rockets to onboard for a release
+# is owned by PM + engineering; this file is the single materialisation.
+notes: |
+  v0.1.0-dev (initial). Only the BA reference template is committed.
+  Add new entries by completing the onboarding workflow (Appendix A.2)
+  and supplying the four required artefacts.

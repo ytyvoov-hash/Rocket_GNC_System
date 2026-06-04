@@ -1,0 +1,112 @@
+# Actuator Library Schema  (v5.4 §2.8)
+# Validates actuator_library.yaml at project root.
+# Referenced by template fin_config.sets[].actuator_ref and per_fin_actuator_ref (clause C14).
+
+$schema: "https://json-schema.org/draft/2020-12/schema"
+$id: "gnc://schemas/actuator_library.schema.yaml"
+title: "ActuatorLibrary"
+type: object
+required: [actuators]
+additionalProperties: false
+
+properties:
+  schema_version:
+    type: string
+    default: "v5.4"
+
+  actuators:
+    type: object
+    description: "Map of actuator_id -> ActuatorEntry."
+    minProperties: 1
+    patternProperties:
+      "^[A-Za-z][A-Za-z0-9_.-]*$":
+        oneOf:
+          - $ref: "#/$defs/SecondOrderWithDelay"
+          - $ref: "#/$defs/FirstOrder"
+          - $ref: "#/$defs/Ideal"
+          - $ref: "#/$defs/Electromechanical"
+    additionalProperties: false
+
+$defs:
+  CommonFields:
+    type: object
+    required: [model_type, rate_max_deg_s, delta_max_deg, delta_min_deg]
+    properties:
+      description: { type: string }
+      model_type: { type: string }
+      rate_max_deg_s: { type: number, exclusiveMinimum: 0 }
+      delta_max_deg: { type: number, exclusiveMinimum: 0 }
+      delta_min_deg: { type: number, exclusiveMaximum: 0 }
+      deadband_deg: { type: number, minimum: 0, default: 0 }
+      backlash_deg: { type: number, minimum: 0, default: 0 }
+      config_type: { type: string, enum: [X, plus, V, custom] }
+      datasheet_url: { type: string }
+      manufacturer: { type: string }
+      part_number: { type: string }
+
+  SecondOrderWithDelay:
+    allOf:
+      - $ref: "#/$defs/CommonFields"
+      - type: object
+        required: [wn_rad_s, zeta, delay_s]
+        properties:
+          model_type: { const: "second_order_with_delay" }
+          wn_rad_s:
+            type: number
+            exclusiveMinimum: 0
+            description: "Natural frequency from -3dB bandwidth: wn = 2*pi*f_-3dB."
+          zeta:
+            type: number
+            minimum: 0
+            description: "Damping ratio derived from rise time + peak overshoot per §2.8.6."
+          delay_s:
+            type: number
+            minimum: 0
+            description: "Pure transport delay (command-to-motion-start)."
+
+  FirstOrder:
+    allOf:
+      - $ref: "#/$defs/CommonFields"
+      - type: object
+        required: [tau_s]
+        properties:
+          model_type: { const: "first_order" }
+          tau_s:
+            type: number
+            exclusiveMinimum: 0
+
+  Ideal:
+    allOf:
+      - $ref: "#/$defs/CommonFields"
+      - type: object
+        properties:
+          model_type: { const: "ideal" }
+
+  Electromechanical:
+    allOf:
+      - $ref: "#/$defs/CommonFields"
+      - type: object
+        required: [motor, gearbox]
+        properties:
+          model_type: { const: "electromechanical" }
+          motor:
+            type: object
+            required: [kt_Nm_per_A, ke_Vs_per_rad, R_ohm, L_H, J_motor_kgm2]
+            properties:
+              kt_Nm_per_A: { type: number, exclusiveMinimum: 0 }
+              ke_Vs_per_rad: { type: number, exclusiveMinimum: 0 }
+              R_ohm: { type: number, exclusiveMinimum: 0 }
+              L_H: { type: number, exclusiveMinimum: 0 }
+              J_motor_kgm2: { type: number, exclusiveMinimum: 0 }
+          gearbox:
+            type: object
+            required: [ratio, efficiency]
+            properties:
+              ratio: { type: number, exclusiveMinimum: 1 }
+              efficiency:
+                type: number
+                exclusiveMinimum: 0
+                maximum: 1
+          hinge_moment_curve_csv:
+            type: string
+            description: "Phase 3.7 Q4 fidelity option."

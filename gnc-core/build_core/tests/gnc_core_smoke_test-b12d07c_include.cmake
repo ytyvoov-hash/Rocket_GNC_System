@@ -1,0 +1,5 @@
+if(EXISTS "M:/2026-5-18gnc-2/2026-5-18gnc-2/project_GNC-V6.0/gnc-core/build_core/tests/gnc_core_smoke_test-b12d07c_tests.cmake")
+  include("M:/2026-5-18gnc-2/2026-5-18gnc-2/project_GNC-V6.0/gnc-core/build_core/tests/gnc_core_smoke_test-b12d07c_tests.cmake")
+else()
+  add_test(gnc_core_smoke_test_NOT_BUILT-b12d07c gnc_core_smoke_test_NOT_BUILT-b12d07c)
+endif()

@@ -1,0 +1,17 @@
+# Hardware Mapping for ES_273
+schema_version: "v5.4"
+flight_computer_variant: STM32H743
+servo_protocol: canopen
+bus:
+  type: classic_can
+  bitrate_bps: 1000000
+  utilisation_budget_pct: 70
+  bridge:
+    type: ch340
+    vid: "0x1A86"
+    pid: "0x7523"
+servos:
+  - { stage_index: 0, fin_index: 0, node_id: "0x25", actuator_ref: default_4020, installed: true }
+  - { stage_index: 0, fin_index: 1, node_id: "0x26", actuator_ref: default_4020, installed: true }
+  - { stage_index: 0, fin_index: 2, node_id: "0x27", actuator_ref: default_4020, installed: true }
+  - { stage_index: 0, fin_index: 3, node_id: "0x28", actuator_ref: default_4020, installed: true }

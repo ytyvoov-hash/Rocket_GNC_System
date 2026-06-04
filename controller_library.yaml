@@ -1,0 +1,99 @@
+# Controller Library  (v5.4 §2.9, §5.2)
+# Single project-level file referenced by every rocket template's stages[].controller_ref.
+# Validated against schemas/controller_library.schema.yaml. Clause C22 enforces resolution.
+# Every mission lock writes the SHA-256 of this file into the locked mission file.
+
+schema_version: "v5.4"
+
+controllers:
+
+  # ------------------------------------------------------------------
+  # Baseline PID for fin-controlled rockets (BA reference)
+  # ------------------------------------------------------------------
+  pid_fins_baseline:
+    description: "Baseline PID controller for 4-fin X-configuration rockets (BA reference)"
+    algorithm: pid
+    gains:
+      pitch:  { Kp: 0.45, Ki: 0.05, Kd: 0.12 }
+      yaw:    { Kp: 0.45, Ki: 0.05, Kd: 0.12 }
+      roll:   { Kp: 0.30, Ki: 0.02, Kd: 0.08 }
+    anti_windup:
+      method: integrator_freeze
+    saturation_strategy: uniform_reduction
+
+  # ------------------------------------------------------------------
+  # Gain-scheduled PID across Mach for fins
+  # ------------------------------------------------------------------
+  pid_fins_scheduled:
+    description: "Gain-scheduled PID for fins across Mach axis"
+    algorithm: pid
+    gains:
+      pitch:  { Kp: 0.45, Ki: 0.05, Kd: 0.12 }
+      yaw:    { Kp: 0.45, Ki: 0.05, Kd: 0.12 }
+      roll:   { Kp: 0.30, Ki: 0.02, Kd: 0.08 }
+    gain_schedule:
+      interpolation: linear_with_cubic_boundaries
+      axes: [mach]
+      operating_points:
+        - coordinates: [0.3]
+          gains:
+            pitch:  { Kp: 0.30, Ki: 0.03, Kd: 0.08 }
+            yaw:    { Kp: 0.30, Ki: 0.03, Kd: 0.08 }
+            roll:   { Kp: 0.20, Ki: 0.01, Kd: 0.05 }
+        - coordinates: [0.8]
+          gains:
+            pitch:  { Kp: 0.45, Ki: 0.05, Kd: 0.12 }
+            yaw:    { Kp: 0.45, Ki: 0.05, Kd: 0.12 }
+            roll:   { Kp: 0.30, Ki: 0.02, Kd: 0.08 }
+        - coordinates: [1.5]
+          gains:
+            pitch:  { Kp: 0.60, Ki: 0.06, Kd: 0.15 }
+            yaw:    { Kp: 0.60, Ki: 0.06, Kd: 0.15 }
+            roll:   { Kp: 0.35, Ki: 0.02, Kd: 0.09 }
+        - coordinates: [3.0]
+          gains:
+            pitch:  { Kp: 0.50, Ki: 0.05, Kd: 0.13 }
+            yaw:    { Kp: 0.50, Ki: 0.05, Kd: 0.13 }
+            roll:   { Kp: 0.30, Ki: 0.02, Kd: 0.08 }
+    anti_windup:
+      method: integrator_freeze
+    saturation_strategy: uniform_reduction
+
+  # ------------------------------------------------------------------
+  # PID for TVC-controlled rockets
+  # ------------------------------------------------------------------
+  pid_tvc_baseline:
+    description: "Baseline PID for thrust-vectored stages"
+    algorithm: pid
+    gains:
+      pitch: { Kp: 0.80, Ki: 0.08, Kd: 0.20 }
+      yaw:   { Kp: 0.80, Ki: 0.08, Kd: 0.20 }
+    anti_windup:
+      method: back_calculation
+      back_calc_gain: 0.1
+    saturation_strategy: uniform_reduction
+
+  # ------------------------------------------------------------------
+  # LQR for fin-controlled (model-based)
+  # ------------------------------------------------------------------
+  lqr_fins_baseline:
+    description: "LQR designed against linearised plant at Mach 1.5"
+    algorithm: lqr
+    gains:
+      # K matrix (rows: u; cols: state-error). Placeholder; tuned in S8.
+      K_matrix:
+        - [ 0.45, 0.00, 0.12, 0.00, 0.00, 0.00 ]
+        - [ 0.00, 0.45, 0.00, 0.12, 0.00, 0.00 ]
+        - [ 0.00, 0.00, 0.00, 0.00, 0.30, 0.08 ]
+      Q_diagonal: [10, 10, 10, 1, 1, 1]
+      R_diagonal: [1, 1, 1]
+    saturation_strategy: uniform_reduction
+
+  # ------------------------------------------------------------------
+  # Passive / no controller (coast stages, ballistic missions)
+  # ------------------------------------------------------------------
+  none_passive:
+    description: "No active control (coast stage, ballistic mission)"
+    algorithm: pid
+    gains: {}      # explicitly empty; controller_type 'none' bypasses use
+    saturation_strategy: uniform_reduction

@@ -1,0 +1,58 @@
+# USB VID:PID -> Role lookup (v5.4 §6.4.7 / S13a)
+# Used by:
+#   - Android bench app USB auto-scan (Path A)
+#   - Web GCS S13a Routing Manager modal
+#   - Backend GET /api/v1/hardware/scan
+#
+# Roles correspond to gnc-frontend/src/store/hardwareSlice.ts PortRole union.
+# Operators may override the suggested role for any port; overrides require
+# Operator ID + Reason and are staged as a patch on hardware_mapping.yaml.
+
+schema_version: "v5.4"
+
+# Default fallback when VID:PID is not recognised.
+unknown_role: UNKNOWN
+
+roles:
+  - id: GPS_TLM_PL2303
+    description: "Prolific PL2303-HXA USB-UART for u-blox GPS + telemetry radio (legacy default)."
+    devices:
+      - { vid: "0x067B", pid: "0x2303", part: "PL2303-HXA" }
+      - { vid: "0x067B", pid: "0x23A3", part: "PL2303-GC" }
+
+  - id: EXT_IMU
+    description: "External IMU bridge via STM32F405 SPI-to-UART (§3.9.6, §7.3.6)."
+    devices:
+      - { vid: "0x1A86", pid: "0x55D4", part: "CH9102X" }
+      - { vid: "0x10C4", pid: "0xEA60", part: "CP2102" }     # alternate
+
+  - id: CAN_CH340
+    description: "CH340-based USB-CAN bridge (auto-probe verifies protocol on open)."
+    devices:
+      - { vid: "0x1A86", pid: "0x7523", part: "CH340" }
+
+  - id: CAN_CANDLELIGHT
+    description: "Candlelight gs_usb CAN adapter."
+    devices:
+      - { vid: "0x1D50", pid: "0x606F", part: "Candlelight" }
+
+  - id: RUDDER_CP2102
+    description: "Rudder 7-byte frame servo adapter (alternate to CANOpen, see §7.3.10)."
+    devices:
+      - { vid: "0x10C4", pid: "0xEA60", part: "CP2102" }     # also EXT_IMU; disambiguated by mission decl
+
+  - id: TELEMETRY_RADIO
+    description: "Direct USB connection to LoRa modem (testing only; flight uses STM32L431 path)."
+    devices:
+      - { vid: "0x0403", pid: "0x6001", part: "FT232R" }
+
+  - id: DEBUG_PROBE
+    description: "STLink/J-Link debug probe; never assigned at flight time."
+    devices:
+      - { vid: "0x0483", pid: "0x374B", part: "STLink-V2" }
+      - { vid: "0x1366", pid: "0x0101", part: "J-Link" }
+
+# Devices to ignore even if connected (e.g. mass storage, HID).
+ignore:
+  - { vid: "0x0781", pid: "*", reason: "SanDisk mass storage" }
+  - { vid: "0x046D", pid: "*", reason: "Logitech HID" }

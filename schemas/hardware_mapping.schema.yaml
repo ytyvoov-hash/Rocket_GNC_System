@@ -1,0 +1,138 @@
+
+# Hardware Mapping Schema  (v5.4 §A.6, clauses C11 + C21)
+# Validates rockets/<id>/hardware_mapping.yaml.
+# Servo node IDs follow:  0x25 + (stage_index * 12) + fin_index.
+
+$schema: "https://json-schema.org/draft/2020-12/schema"
+$id: "gnc://schemas/hardware_mapping.schema.yaml"
+title: "HardwareMapping"
+type: object
+required: [bus, servos, pyros]
+additionalProperties: false
+
+properties:
+  schema_version:
+    type: string
+    default: "v5.4"
+
+  flight_computer_variant:
+    type: string
+    enum: [STM32H743, STM32H753]
+    description: "Path B variant select per Decision 8."
+
+  servo_protocol:
+    type: string
+    enum: [canopen, rudder_7b]
+    default: canopen
+    description: "rudder_7b selects the alternate 7-byte servo driver per §7.3.10."
+
+  bus:
+    type: object
+    required: [type, bitrate_bps]
+    properties:
+      type:
+        type: string
+        enum: [classic_can, fdcan]
+      bitrate_bps:
+        type: integer
+        minimum: 100000
+      bridge:
+        type: object
+        description: "USB-CAN bridge declaration; auto-probe verifies (§7.3.11)."
+        properties:
+          type: { type: string, enum: [ch340, slcan, gs_usb, candle, kvaser, peak] }
+          vid: { type: string, pattern: "^0x[0-9A-Fa-f]{4}$" }
+          pid: { type: string, pattern: "^0x[0-9A-Fa-f]{4}$" }
+      utilisation_budget_pct:
+        type: number
+        minimum: 0
+        maximum: 100
+        default: 70
+        description: "Clause C25 enforces computed utilisation < this value."
+
+  servos:
+    type: array
+    description: "One entry per fin servo; node_id derived per stage+fin index."
+    items:
+      type: object
+      required: [stage_index, fin_index, node_id]
+      properties:
+        stage_index: { type: integer, minimum: 0 }
+        fin_index: { type: integer, minimum: 0, maximum: 11 }
+        node_id:
+          type: string
+          pattern: "^0x[0-9A-Fa-f]{2}$"
+          description: "Must equal 0x25 + stage_index*12 + fin_index."
+        actuator_ref: { type: string, description: "Override of template fin actuator_ref." }
+        installed: { type: boolean, default: true }
+
+  pyros:
+    type: array
+    description: "Separation nails, engine starters, warhead fuse."
+    items:
+      type: object
+      required: [event_name, node_id]
+      properties:
+        event_name:
+          type: string
+          examples: [SEP_NAIL_1_TO_2, SEP_NAIL_2_TO_3, ENGINE_START_2, WARHEAD_FUSE]
+        node_id: { type: string, pattern: "^0x[0-9A-Fa-f]{2}$" }
+        arming_pin: { type: string }
+        description: { type: string }
+
+  gpios:
+    type: array
+    items:
+      type: object
+      required: [name, pin]
+      properties:
+        name: { type: string }
+        pin: { type: string }
+        direction: { type: string, enum: [in, out, alternate] }
+        active_level: { type: string, enum: [high, low] }
+
+  uart_ports:
+    type: array
+    items:
+      type: object
+      required: [name, role]
+      properties:
+        name: { type: string }
+        role:
+          type: string
+          enum: [GPS, EXT_IMU, TELEMETRY_RADIO, SEEKER_LINK, DEBUG]
+        baud: { type: integer, minimum: 9600 }
+
+  ethernet:
+    type: object
+    properties:
+      enabled: { type: boolean, default: true }
+      tcp_5900_role:
+        type: string
+        enum: [server, client, disabled]
+        default: server
+        description: "MCTU bridge to GCS per §7.3.9."
+
+  seeker:
+    type: object
+    description: "Required when any stage has seeker_capable=true (clause C13)."
+    properties:
+      host:
+        type: string
+        enum: [snapdragon, jetson_nano, none]
+      link:
+        type: string
+        enum: [uart, can, none]
+      camera:
+        type: object
+        properties:
+          interface: { type: string, enum: [usb, csi, ethernet] }
+          intrinsics:
+            type: object
+            required: [fx, fy, cx, cy]
+            properties:
+              fx: { type: number, exclusiveMinimum: 0 }
+              fy: { type: number, exclusiveMinimum: 0 }
+              cx: { type: number }
+              cy: { type: number }
+              distortion: { type: array, items: { type: number } }

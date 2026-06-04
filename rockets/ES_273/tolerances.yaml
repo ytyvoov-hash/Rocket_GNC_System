@@ -1,0 +1,4 @@
+schema_version: "v5.4"
+tolerances:
+  position_m: 0.5
+  velocity_m_s: 0.1

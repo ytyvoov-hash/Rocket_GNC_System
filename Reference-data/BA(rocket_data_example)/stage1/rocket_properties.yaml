@@ -1,0 +1,100 @@
+# ============================================================================
+# Rocket Properties Configuration File 
+# ============================================================================
+# ==========================================================================
+# Mass Properties
+# ==========================================================================
+
+mass_dry_kg: 291
+
+propellant_mass_kg: 285
+
+
+# Insulation mass - kg (optional, default = 0)
+# Insulation ablates proportionally with propellant
+insulation_mass_kg: 4
+# ==========================================================================
+# Center of Gravity
+# ==========================================================================
+cg_dry_body_m: [2.485, 0.0000, 0.00]
+
+cg_full_body_m: [2.90539, 0.000, 0.000]
+
+
+
+# ==========================================================================
+# Moments of Inertia
+# ==========================================================================
+
+inertia_dry_kgm2: [4.0458855, 936.08, 936.08]
+
+# Full moments of inertia (with propellant) [Ixx, Iyy, Izz] - kg·m²
+inertia_full_kgm2: [ 6.774317, 1290.08,1290.08]             
+
+
+CA_multiplier: 0.9
+# ==========================================================================
+# Reference Dimensions
+# ==========================================================================
+
+ref_diameter_m: 0.273
+
+ref_length_m: 5.453
+
+ref_area_m2: 0.05853
+
+# ==========================================================================
+
+# ==========================================================================
+# Nozzle Parameters
+# ==========================================================================
+
+nozzle_exit_area_m2: 0.05557
+
+sea_level_pressure_Pa: 65000.0
+
+
+# Fin Properties
+# ==========================================================================
+
+fin:
+  S_fin_m2: 0.02273726
+  
+  c_fin_m: 0.150
+  
+  x_fin_m: 1.106
+  
+  delta_max_deg: 20.0
+  
+  delta_dot_max_deg_s: 300.0
+
+# ==========================================================================
+# Stage Parameters
+# ==========================================================================
+#burn_time_scale: 1.
+
+
+# Thrust multiplier - multiplies thrust while keeping time and mass constant
+# This effectively multiplies the specific impulse (Isp)
+# Value 1.0 = no change, > 1.0 = increase thrust/Isp, < 1.0 = decrease thrust/Isp
+thrust_multiplier: 1.0
+num_stages: 1
+
+# Moment reference point - distance from nose to aero table reference point (m)
+# This is the reference point used in CFD/wind tunnel analysis for Cm/Cn coefficients
+# When CG differs from this point, a moment transfer correction is automatically applied
+
+# ==========================================================================
+#(Launcher Settings)
+# ==========================================================================
+# Launch rail model constrains rocket to 1-DOF motion along rail
+# until rocket CG travels beyond effective rail length
+#
+# Launch elevation must match initial attitude
+# ==========================================================================
+launcher:
+  enabled: true                # (Enable/disable launch rail model)
+  rail_length: 5.45          # m -(total rail length)
+  rail_effective_length: 4.5 # m - (CG travel distance for rail exit)
+  rail_friction_coefficient: 0.1  #(friction coefficient)
+  launch_elevation: 65.0        # deg - initial attitude (65°)

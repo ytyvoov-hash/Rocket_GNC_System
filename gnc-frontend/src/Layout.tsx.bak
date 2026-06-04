@@ -1,0 +1,197 @@
+import React, { useEffect } from 'react';
+import { Outlet, NavLink, useNavigate, Navigate, useLocation } from 'react-router-dom';
+import { Rocket, LayoutDashboard, Database, Settings, LogOut, AlertTriangle, LogIn, Languages, Activity } from 'lucide-react';
+import clsx from 'clsx';
+import { useTranslation } from 'react-i18next';
+import { useAppSelector, useAppDispatch } from './store/hooks';
+import { logout } from './store/authSlice';
+
+export default function Layout() {
+  const dispatch = useAppDispatch();
+  const navigate = useNavigate();
+  const location = useLocation();
+  const { operatorId, isAuthenticated } = useAppSelector(state => state.auth);
+  const { activeRocket } = useAppSelector(state => state.rocket);
+  const { t, i18n } = useTranslation();
+
+  useEffect(() => {
+    document.documentElement.dir  = i18n.language === 'ar' ? 'rtl' : 'ltr';
+    document.documentElement.lang = i18n.language;
+  }, [i18n.language]);
+
+  if (!isAuthenticated) {
+    return <Navigate to="/" replace />;
+  }
+
+  // Route Guard: If no rocket is active, redirect from protected routes back to the library.
+  const allowedPathsWithoutRocket = ['/', '/dashboard', '/library', '/settings'];
+  if (activeRocket === null && !allowedPathsWithoutRocket.includes(location.pathname)) {
+    return <Navigate to="/library" replace />;
+  }
+
+  type NavItem = {
+    to: string;
+    icon: any;
+    label: string;
+    group?: string;
+  };
+
+  const navItems: NavItem[] = [
+    // Core System
+    { to: '/dashboard',    icon: LayoutDashboard,label: t('nav.s2_dashboard')  },
+    
+    // Group 1: Hardware Assets
+    { to: '/library',      icon: Database,       label: t('nav.s3_library'), group: '1. Hardware Assets' },
+    { to: '/editor',       icon: Rocket,         label: t('nav.s4_editor'), group: '1. Hardware Assets' },
+    { to: '/actuators',    icon: Rocket,         label: 'Actuator Library', group: '1. Hardware Assets' },
+    
+    // Group 2: GNC Workbenches (Algorithm Libraries)
+    { to: '/guidance',     icon: Activity,       label: 'Guidance Design', group: '2. GNC Workbenches' },
+    { to: '/estimation',   icon: Activity,       label: 'State Estimation Design', group: '2. GNC Workbenches' },
+    { to: '/workbench',    icon: Activity,       label: 'Control Workbench', group: '2. GNC Workbenches' },
+    
+    // Group 3: Mission Operations
+    { to: '/mission',      icon: Rocket,         label: t('nav.s5_mission'), group: '3. Mission Operations' },
+    { to: '/simulation',   icon: Activity,       label: 'Simulation Center', group: '3. Mission Operations' },
+    { to: '/monte-carlo',  icon: Rocket,         label: t('nav.s11_monte'), group: '3. Mission Operations' },
+    { to: '/health',       icon: Rocket,         label: t('nav.s13_health'), group: '3. Mission Operations' },
+    { to: '/firmware',     icon: Rocket,         label: t('nav.s19_firmware'), group: '3. Mission Operations' },
+    { to: '/checklist',    icon: Rocket,         label: t('nav.s14_checklist'), group: '3. Mission Operations' },
+    { to: '/launch',       icon: AlertTriangle,  label: t('nav.s15_launch'), group: '3. Mission Operations' },
+  
+    // Group 4: Flight & Post-Flight
+    { to: '/monitor',      icon: Rocket,         label: t('nav.s16_monitor'), group: '4. Flight & Post-Flight' },
+    { to: '/post-flight',  icon: Rocket,         label: t('nav.s17_postflight'), group: '4. Flight & Post-Flight' },
+    { to: '/replay',       icon: Rocket,         label: t('nav.s18_replay'), group: '4. Flight & Post-Flight' },
+    { to: '/comparison',   icon: Rocket,         label: t('nav.s22_comparison'), group: '4. Flight & Post-Flight' },
+    { to: '/audit',        icon: Rocket,         label: t('nav.s21_audit'), group: '4. Flight & Post-Flight' },
+  ];
+
+  const filteredNavItems = navItems.filter(item => {
+    // S2 Dashboard, and S3 Library are always visible in sidebar
+    if (['/dashboard', '/library'].includes(item.to)) {
+      return true;
+    }
+    // Other items require an active rocket selection
+    return activeRocket !== null;
+  });
+
+  const handleLogout = () => {
+    dispatch(logout());
+    navigate('/');
+  };
+
+  const toggleLang = () =>
+    i18n.changeLanguage(i18n.language === 'ar' ? 'en' : 'ar');
+
+  return (
+    <div className="min-h-screen bg-transparent text-slate-100 flex relative overflow-hidden font-sans">
+      {/* Shared Ambient Background */}
+      <div className="absolute top-0 left-1/4 w-96 h-96 bg-blue-600/10 rounded-full blur-[100px] pointer-events-none" />
+      <div className="absolute bottom-0 right-1/4 w-96 h-96 bg-cyan-600/10 rounded-full blur-[100px] pointer-events-none" />
+
+      {/* Sidebar Navigation */}
+      <aside className="w-64 glass-panel m-4 flex flex-col justify-between overflow-hidden shadow-2xl relative z-10">
+        <div className="flex flex-col flex-1 min-h-0">
+          <div className="p-6 border-b border-slate-700/50 flex flex-col items-center gap-3 shrink-0">
+            <div className="flex items-center gap-3 w-full">
+              <div className="w-8 h-8 rounded bg-blue-600 flex items-center justify-center font-bold">G</div>
+              <span className="font-bold text-lg tracking-tight">{t('platform_name')}</span>
+            </div>
+            {operatorId && (
+              <div className="w-full text-xs text-blue-400 font-mono text-center bg-blue-900/20 py-1 rounded border border-blue-500/30">
+                {t('common.operator')}: {operatorId}
+              </div>
+            )}
+          </div>
+          
+          <nav className="p-4 space-y-4 flex-1 overflow-y-auto no-scrollbar">
+            {(() => {
+              const items = filteredNavItems;
+              const groups = [...new Set(items.map(item => item.group).filter(Boolean))];
+              const ungrouped = items.filter(item => !item.group);
+              
+              return (
+                <>
+                  <div className="space-y-1">
+                    {ungrouped.map(item => (
+                      <NavLink
+                        key={item.to}
+                        to={item.to}
+                        className={({ isActive }) => clsx(
+                          "flex items-center gap-3 px-4 py-2.5 rounded-lg transition-all text-sm",
+                          isActive 
+                            ? "bg-blue-600/20 text-blue-400 border border-blue-500/30 shadow-[0_0_15px_rgba(37,99,235,0.15)]" 
+                            : "text-slate-400 hover:text-slate-200 hover:bg-slate-800/50"
+                        )}
+                      >
+                        <item.icon className="w-4 h-4" />
+                        <span className="font-medium">{item.label}</span>
+                      </NavLink>
+                    ))}
+                  </div>
+
+                  {groups.map(group => {
+                    const groupItems = items.filter(item => item.group === group);
+                    if (groupItems.length === 0) return null;
+                    return (
+                      <div key={group as string} className="space-y-1">
+                        <div className="text-[10px] uppercase text-slate-500 font-bold mb-2 tracking-wider px-4 mt-2">
+                          {group}
+                        </div>
+                        {groupItems.map(item => (
+                          <NavLink
+                            key={item.to}
+                            to={item.to}
+                            className={({ isActive }) => clsx(
+                              "flex items-center gap-3 px-4 py-2.5 rounded-lg transition-all text-sm",
+                              isActive 
+                                ? "bg-blue-600/20 text-blue-400 border border-blue-500/30 shadow-[0_0_15px_rgba(37,99,235,0.15)]" 
+                                : "text-slate-400 hover:text-slate-200 hover:bg-slate-800/50"
+                            )}
+                          >
+                            <item.icon className="w-4 h-4" />
+                            <span className="font-medium">{item.label}</span>
+                          </NavLink>
+                        ))}
+                      </div>
+                    );
+                  })}
+                </>
+              );
+            })()}
+          </nav>
+        </div>
+
+        <div className="p-4 border-t border-slate-700/50 space-y-2">
+          <button onClick={toggleLang}
+            className="flex w-full items-center gap-3 px-4 py-3 rounded-lg text-slate-400 hover:text-slate-200 hover:bg-slate-800/50 transition-all">
+            <Languages className="w-5 h-5" />
+            <span className="font-medium">{i18n.language === 'ar' ? 'English' : 'العربية'}</span>
+          </button>
+          <NavLink
+            to="/settings"
+            className={({ isActive }) => clsx(
+              "flex w-full items-center gap-3 px-4 py-3 rounded-lg transition-all",
+              isActive
+                ? "bg-blue-600/20 text-blue-400 border border-blue-500/30"
+                : "text-slate-400 hover:text-slate-200 hover:bg-slate-800/50"
+            )}
+          >
+            <Settings className="w-5 h-5" />
+            <span className="font-medium">{t('nav.settings')}</span>
+          </NavLink>
+          <button onClick={handleLogout} className="flex w-full items-center gap-3 px-4 py-3 rounded-lg text-red-400 hover:text-red-300 hover:bg-red-500/10 transition-all">
+            <LogOut className="w-5 h-5" />
+            <span className="font-medium">{t('nav.logout')}</span>
+          </button>
+        </div>
+      </aside>
+
+      {/* Main Content */}
+      <main className="flex-1 m-4 ml-0 glass-panel overflow-y-auto relative z-10 p-8 shadow-2xl">
+        <Outlet />
+      </main>
+    </div>
+  );
+}

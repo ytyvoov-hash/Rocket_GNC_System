@@ -1,0 +1,46 @@
+# Canonical Rocket properties file for BA Reference Rocket
+schema_version: "v5.4"
+template_id: "BA"
+display_name: "BA Reference Rocket"
+type: "Canard-Controlled Single-Stage"
+status: "draft"
+num_stages: 1
+
+stages:
+  - stage_id: "BA_S1"
+    name: "Stage 1"
+    stage_index: 0
+    is_terminal: true
+    has_warhead: false
+    physical:
+      mass_dry_kg: 281.89
+      propellant_mass_kg: 285.0
+      insulation_mass_kg: 2
+      cg_dry_body_m: [2.485, 0.0, 0.0]
+      cg_full_body_m: [2.905, 0.0, 0.0]
+      inertia_dry_kgm2: [4.04, 936.08, 936.08]
+      inertia_full_kgm2: [6.77, 1290.08, 1290.08]
+    geometry:
+      ref_diameter_m: 0.273
+      ref_length_m: 5.45
+      ref_area_m2: 0.05853
+    propulsion:
+      total_impulse_Ns: 655000.0
+      burn_time_s: 13.1
+    controller_type: "fins"
+    controller_ref: "pid_fins_baseline"
+    seeker_capable: false
+    autopilot:
+      enabled: true
+      capable_modes: ["auto_shape", "fixed_pitch", "passive_ballistic"]
+    fin_config:
+      sets:
+        - set_index: 0
+          fin_count: 4
+          S_fin_m2: 0.02273726
+          c_fin_m: 0.150
+          x_fin_m: 1.106
+          delta_max_deg: 20.0
+          delta_dot_max_deg_s: 300.0
+          actuator_ref: "default_4020"
+          config_type: "X"

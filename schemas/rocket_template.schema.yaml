@@ -1,0 +1,224 @@
+# Rocket Template Schema  (v5.4 §2.2, clause C1)
+# Validates rockets/<id>/rocket_properties.yaml
+# Frozen; append-only per Decision 6.
+
+$schema: "https://json-schema.org/draft/2020-12/schema"
+$id: "gnc://schemas/rocket_template.schema.yaml"
+title: "RocketTemplate"
+type: object
+required: [template_id, num_stages, stages, hardware_mapping_file]
+additionalProperties: true
+
+properties:
+  template_id:
+    type: string
+    description: "Stable rocket identifier, e.g. 'BA', 'ES_273'."
+    pattern: "^[A-Za-z][A-Za-z0-9_]*$"
+
+  display_name:
+    type: string
+
+  description:
+    type: string
+
+  type:
+    type: string
+    enum: [sounding, suborbital, missile, demonstrator, other]
+
+  status:
+    type: string
+    enum: [flight-ready, draft, archived]
+
+  num_stages:
+    type: integer
+    minimum: 1
+    description: "Open-ended; validator clause C15 enforces len(stages) == num_stages."
+
+  CA_multiplier:
+    type: number
+    default: 1.0
+    description: "Top-level axial-force multiplier applied to all stages."
+
+  thrust_multiplier:
+    type: number
+    default: 1.0
+    description: "Effectively scales Isp; keeps thrust curve and mass-flow shape."
+
+  hardware_mapping_file:
+    type: string
+    description: "Relative path to per-rocket hardware_mapping.yaml. Clause C11."
+
+  estimation:
+    type: object
+    properties:
+      approach: { type: string, enum: [single_filter, sequential, imm] }
+      eskf:
+        type: object
+        properties:
+          Q: { type: array }
+          R: { type: array }
+      mhe:
+        type: object
+        properties:
+          enabled: { type: boolean, default: false }
+          horizon: { type: integer, minimum: 1 }
+          rate_hz: { type: number }
+          Q: { type: array }
+          R: { type: array }
+
+  stages:
+    type: array
+    minItems: 1
+    items: { $ref: "#/$defs/Stage" }
+
+  launcher:
+    type: object
+    properties:
+      enabled: { type: boolean, default: true }
+      rail_length: { type: number, description: "metres" }
+      rail_effective_length: { type: number, description: "metres; CG travel for rail exit" }
+      rail_friction_coefficient: { type: number, default: 0.0 }
+      launch_elevation: { type: number, description: "degrees" }
+
+$defs:
+  Stage:
+    type: object
+    required: [stage_id, stage_index, is_terminal, physical, geometry, controller_type]
+    additionalProperties: true
+    properties:
+      stage_id: { type: string }
+      stage_index: { type: integer, minimum: 0 }
+      name: { type: string }
+      is_terminal: { type: boolean }
+      has_warhead: { type: boolean, default: false }
+      seeker_capable: { type: boolean, default: false }
+
+      physical:
+        type: object
+        required: [mass_dry_kg, propellant_mass_kg, cg_dry_body_m, inertia_dry_kgm2, inertia_full_kgm2]
+        properties:
+          mass_dry_kg: { type: number, exclusiveMinimum: 0 }     # C2
+          propellant_mass_kg: { type: number, minimum: 0 }        # 0 for coast stage
+          insulation_mass_kg: { type: number, minimum: 0, default: 0 }
+          cg_dry_body_m: { type: array, minItems: 3, maxItems: 3, items: { type: number } }
+          cg_full_body_m: { type: array, minItems: 3, maxItems: 3, items: { type: number } }
+          cg_propellant_body_m: { type: array, minItems: 3, maxItems: 3, items: { type: number } }
+          inertia_dry_kgm2: { type: array, minItems: 3, maxItems: 3, items: { type: number, exclusiveMinimum: 0 } }
+          inertia_full_kgm2: { type: array, minItems: 3, maxItems: 3, items: { type: number, exclusiveMinimum: 0 } }
+
+      geometry:
+        type: object
+        required: [ref_diameter_m, ref_length_m, ref_area_m2]
+        properties:
+          ref_diameter_m: { type: number, exclusiveMinimum: 0 }
+          ref_length_m: { type: number, exclusiveMinimum: 0 }
+          ref_area_m2: { type: number, exclusiveMinimum: 0 }
+          moment_reference_point_m: { type: number, description: "Distance from nose to aero table reference point" }
+
+      aerodynamics:
+        type: object
+        properties:
+          coefficient_files:
+            type: object
+            properties:
+              CN: { type: string }
+              CM: { type: string }
+              CA_on: { type: string }
+              CA_off: { type: string }
+              damping: { type: string }
+              fin_loads: { type: string }
+              roll: { type: string }
+
+      propulsion:
+        type: object
+        description: "Omit entirely for unpowered coast stages (Phase 2 Q2)."
+        properties:
+          thrust_curve_file: { type: string }
+          burn_time_s: { type: number, exclusiveMinimum: 0 }
+          total_impulse_Ns: { type: number, exclusiveMinimum: 0 }
+          isp_s: { type: number, exclusiveMinimum: 0 }
+          thrust_multiplier: { type: number, default: 1.0 }
+          nozzle_exit_area_m2: { type: number, exclusiveMinimum: 0 }
+          sea_level_pressure_Pa: { type: number, default: 101325.0 }
+
+      controller_type:
+        type: string
+        enum: [fins, tvc, hybrid, cold_gas, aerospike, roll_canards, none]
+        description: "Day-1 registry. 'aerospike' ships as a fail-closed stub."
+
+      controller_ref:
+        type: string
+        description: "Resolved against controller_library.yaml at clause C22."
+
+      autopilot:
+        type: object
+        properties:
+          enabled: { type: boolean, default: false }
+          capable_modes:
+            type: array
+            items: { type: string, enum: [auto_shape, fixed_pitch, passive_ballistic, waypoint, terminal_homing] }
+          params: { type: object, additionalProperties: true }
+
+      fin_config:
+        type: object
+        properties:
+          sets:
+            type: array
+            items:
+              type: object
+              required: [set_index, fin_count, S_fin_m2, c_fin_m, x_fin_m, delta_max_deg, delta_dot_max_deg_s]
+              properties:
+                set_index: { type: integer, minimum: 0 }
+                fin_count: { type: integer, minimum: 1, maximum: 12 }
+                S_fin_m2: { type: number, exclusiveMinimum: 0 }
+                c_fin_m: { type: number, exclusiveMinimum: 0 }
+                x_fin_m: { type: number }
+                delta_max_deg: { type: number, exclusiveMinimum: 0 }
+                delta_dot_max_deg_s: { type: number, exclusiveMinimum: 0 }
+                actuator_ref:
+                  type: string
+                  description: "Default actuator for the set; clause C14."
+                per_fin_actuator_ref:
+                  type: array
+                  description: "Override per-fin; length must equal fin_count."
+                  items: { type: string }
+                config_type: { type: string, enum: [X, plus, V, custom] }
+
+      tvc_config:
+        type: object
+        properties:
+          deflection_max_deg: { type: number, exclusiveMinimum: 0 }
+          rate_max_deg_s: { type: number, exclusiveMinimum: 0 }
+          actuator_ref: { type: string }
+
+      separation:
+        type: object
+        description: "Required for non-terminal stages (clause C17)."
+        required: [trigger, offset_s, timeout_s, arming_s, nail_count, nail_pyro_events]
+        properties:
+          trigger:
+            type: string
+            enum: [burnout, time, altitude, velocity, event]
+          offset_s: { type: number, minimum: 0 }
+          timeout_s: { type: number, exclusiveMinimum: 0 }
+          arming_s: { type: number, minimum: 0 }
+          nail_count: { type: integer, minimum: 0 }
+          nail_pyro_events:
+            type: array
+            items: { type: string }
+            description: "Per-nail pyro event names; resolved against hardware_mapping."
+
+      optional_sensors:
+        type: object
+        properties:
+          external_imu: { type: boolean, default: false }
+          gps: { type: boolean, default: true }
+
+      abort_policy:
+        type: object
+        description: "Soft-required at onboarding (clause C24 WARN); hard-required at flight (FAIL)."
+        properties:
+          alpha_max_deg: { type: number }
+          rate_max_deg_s: { type: number }
+          estimator_divergence: { type: number }
+          link_loss_timeout_s: { type: number }

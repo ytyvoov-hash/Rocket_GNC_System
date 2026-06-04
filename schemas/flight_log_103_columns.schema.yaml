@@ -1,0 +1,140 @@
+# Flight Log Column Schema  (v5.4 Appendix C, Decision 6)
+# 103-column HDF5 / CSV row order. FROZEN. Append-only.
+#
+# Columns 1-101 are the original v5.3 schema; columns 102-103 are saturation
+# bitmasks added by v5.4 Decision 6.
+#
+# IMPORTANT:
+#   - bitmask width: uint8 (up to 8 fins) widens to uint16 when num_fins > 8.
+#   - bit i (0-indexed) corresponds to fin index i (i.e. fin number i+1 in 1-indexed UIs).
+#   - column 102 = fin_rate_limited_flag bitmask.
+#   - column 103 = fin_position_limited_flag bitmask.
+#   - Both columns are always present in transmitted MisPlot frames (§2.8.5).
+#
+# This file is consumed by:
+#   - Backend HDF5 writer (gnc-backend/src/storage/FlightLogWriter.cc)
+#   - Replay (S18) and post-flight analysis (S17)
+#   - Tier 3 SIL parity comparator
+
+schema_version: "v5.4"
+total_columns: 103
+mutable: false
+
+columns:
+  # === Block 1: Time + state vector (1..15) ===
+  - { idx: 1,  name: time_s,                  dtype: f64, unit: s,     desc: "Seconds since launch" }
+  - { idx: 2,  name: pos_n_x,                 dtype: f64, unit: m,     desc: "NED position North" }
+  - { idx: 3,  name: pos_n_y,                 dtype: f64, unit: m,     desc: "NED position East" }
+  - { idx: 4,  name: pos_n_z,                 dtype: f64, unit: m,     desc: "NED position Down" }
+  - { idx: 5,  name: vel_n_x,                 dtype: f32, unit: m/s,   desc: "NED velocity North" }
+  - { idx: 6,  name: vel_n_y,                 dtype: f32, unit: m/s,   desc: "NED velocity East" }
+  - { idx: 7,  name: vel_n_z,                 dtype: f32, unit: m/s,   desc: "NED velocity Down" }
+  - { idx: 8,  name: q_b_n_w,                 dtype: f32, unit: "",    desc: "Body-from-NED quaternion w" }
+  - { idx: 9,  name: q_b_n_x,                 dtype: f32, unit: "",    desc: "Body-from-NED quaternion x" }
+  - { idx: 10, name: q_b_n_y,                 dtype: f32, unit: "",    desc: "Body-from-NED quaternion y" }
+  - { idx: 11, name: q_b_n_z,                 dtype: f32, unit: "",    desc: "Body-from-NED quaternion z" }
+  - { idx: 12, name: omega_b_x,               dtype: f32, unit: rad/s, desc: "Body angular rate p" }
+  - { idx: 13, name: omega_b_y,               dtype: f32, unit: rad/s, desc: "Body angular rate q" }
+  - { idx: 14, name: omega_b_z,               dtype: f32, unit: rad/s, desc: "Body angular rate r" }
+  - { idx: 15, name: altitude_msl_m,          dtype: f32, unit: m,     desc: "Altitude above mean sea level" }
+
+  # === Block 2: Aerodynamics + propulsion (16..30) ===
+  - { idx: 16, name: mach,                    dtype: f32 }
+  - { idx: 17, name: alpha_deg,               dtype: f32 }
+  - { idx: 18, name: beta_deg,                dtype: f32 }
+  - { idx: 19, name: q_dynamic_Pa,            dtype: f32, desc: "Dynamic pressure" }
+  - { idx: 20, name: density_kg_m3,           dtype: f32 }
+  - { idx: 21, name: speed_of_sound_m_s,      dtype: f32 }
+  - { idx: 22, name: thrust_N,                dtype: f32 }
+  - { idx: 23, name: mass_kg,                 dtype: f32 }
+  - { idx: 24, name: cg_body_x_m,             dtype: f32 }
+  - { idx: 25, name: cp_body_x_m,             dtype: f32, desc: "Computed at runtime from CN/CM (Phase 3 Q4)" }
+  - { idx: 26, name: drag_N,                  dtype: f32 }
+  - { idx: 27, name: lift_N,                  dtype: f32 }
+  - { idx: 28, name: side_force_N,            dtype: f32 }
+  - { idx: 29, name: pitch_moment_Nm,         dtype: f32 }
+  - { idx: 30, name: yaw_moment_Nm,           dtype: f32 }
+
+  # === Block 3: Commanded vs measured fin deflections (31..54) ===
+  # Up to 12 fins; sentinel -32768 (i16) or NaN (f32) marks absent fin.
+  - { idx: 31, name: fin_cmd_deg_1,           dtype: f32 }
+  - { idx: 32, name: fin_cmd_deg_2,           dtype: f32 }
+  - { idx: 33, name: fin_cmd_deg_3,           dtype: f32 }
+  - { idx: 34, name: fin_cmd_deg_4,           dtype: f32 }
+  - { idx: 35, name: fin_cmd_deg_5,           dtype: f32 }
+  - { idx: 36, name: fin_cmd_deg_6,           dtype: f32 }
+  - { idx: 37, name: fin_cmd_deg_7,           dtype: f32 }
+  - { idx: 38, name: fin_cmd_deg_8,           dtype: f32 }
+  - { idx: 39, name: fin_cmd_deg_9,           dtype: f32 }
+  - { idx: 40, name: fin_cmd_deg_10,          dtype: f32 }
+  - { idx: 41, name: fin_cmd_deg_11,          dtype: f32 }
+  - { idx: 42, name: fin_cmd_deg_12,          dtype: f32 }
+  - { idx: 43, name: fin_meas_deg_1,          dtype: f32 }
+  - { idx: 44, name: fin_meas_deg_2,          dtype: f32 }
+  - { idx: 45, name: fin_meas_deg_3,          dtype: f32 }
+  - { idx: 46, name: fin_meas_deg_4,          dtype: f32 }
+  - { idx: 47, name: fin_meas_deg_5,          dtype: f32 }
+  - { idx: 48, name: fin_meas_deg_6,          dtype: f32 }
+  - { idx: 49, name: fin_meas_deg_7,          dtype: f32 }
+  - { idx: 50, name: fin_meas_deg_8,          dtype: f32 }
+  - { idx: 51, name: fin_meas_deg_9,          dtype: f32 }
+  - { idx: 52, name: fin_meas_deg_10,         dtype: f32 }
+  - { idx: 53, name: fin_meas_deg_11,         dtype: f32 }
+  - { idx: 54, name: fin_meas_deg_12,         dtype: f32 }
+
+  # === Block 4: Estimator (55..70) ===
+  - { idx: 55, name: est_pos_n_x,             dtype: f32 }
+  - { idx: 56, name: est_pos_n_y,             dtype: f32 }
+  - { idx: 57, name: est_pos_n_z,             dtype: f32 }
+  - { idx: 58, name: est_vel_n_x,             dtype: f32 }
+  - { idx: 59, name: est_vel_n_y,             dtype: f32 }
+  - { idx: 60, name: est_vel_n_z,             dtype: f32 }
+  - { idx: 61, name: est_bias_a_x,            dtype: f32 }
+  - { idx: 62, name: est_bias_a_y,            dtype: f32 }
+  - { idx: 63, name: est_bias_a_z,            dtype: f32 }
+  - { idx: 64, name: est_bias_g_x,            dtype: f32 }
+  - { idx: 65, name: est_bias_g_y,            dtype: f32 }
+  - { idx: 66, name: est_bias_g_z,            dtype: f32 }
+  - { idx: 67, name: est_innov_pos_norm,      dtype: f32 }
+  - { idx: 68, name: est_innov_vel_norm,      dtype: f32 }
+  - { idx: 69, name: est_cov_pos_trace,       dtype: f32 }
+  - { idx: 70, name: est_cov_att_trace,       dtype: f32 }
+
+  # === Block 5: Sensors (71..85) ===
+  - { idx: 71, name: imu_acc_x,               dtype: f32, unit: m/s2 }
+  - { idx: 72, name: imu_acc_y,               dtype: f32, unit: m/s2 }
+  - { idx: 73, name: imu_acc_z,               dtype: f32, unit: m/s2 }
+  - { idx: 74, name: imu_gyro_x,              dtype: f32, unit: rad/s }
+  - { idx: 75, name: imu_gyro_y,              dtype: f32, unit: rad/s }
+  - { idx: 76, name: imu_gyro_z,              dtype: f32, unit: rad/s }
+  - { idx: 77, name: imu_temp_c,              dtype: f32 }
+  - { idx: 78, name: gps_lat_deg,             dtype: f64 }
+  - { idx: 79, name: gps_lon_deg,             dtype: f64 }
+  - { idx: 80, name: gps_alt_m,               dtype: f32 }
+  - { idx: 81, name: gps_fix_quality,         dtype: u8,  desc: "0=NO_FIX,1=GPS,2=SBAS,3=RTK" }
+  - { idx: 82, name: gps_satellites,          dtype: u8 }
+  - { idx: 83, name: ext_imu_acc_norm,        dtype: f32 }
+  - { idx: 84, name: ext_imu_gyro_norm,       dtype: f32 }
+  - { idx: 85, name: baro_alt_m,              dtype: f32 }
+
+  # === Block 6: Health + flight management (86..101) ===
+  - { idx: 86, name: cpu_load_pct,            dtype: u8 }
+  - { idx: 87, name: cpu_temp_c,              dtype: f32 }
+  - { idx: 88, name: heap_free_kb,            dtype: u16 }
+  - { idx: 89, name: can_utilisation_pct,     dtype: u8, desc: "C25 budget (<70%)" }
+  - { idx: 90, name: flight_phase_code,       dtype: u8, desc: "0..6 per FlightPhase enum" }
+  - { idx: 91, name: current_stage,           dtype: u8 }
+  - { idx: 92, name: control_loop_overrun_us, dtype: u16 }
+  - { idx: 93, name: estimator_loop_overrun_us, dtype: u16 }
+  - { idx: 94, name: mhe_iterations,          dtype: u8 }
+  - { idx: 95, name: mhe_residual,            dtype: f32 }
+  - { idx: 96, name: imm_mode_argmax,         dtype: u8 }
+  - { idx: 97, name: imm_prob_0,              dtype: f32 }
+  - { idx: 98, name: imm_prob_1,              dtype: f32 }
+  - { idx: 99, name: imm_prob_2,              dtype: f32 }
+  - { idx: 100, name: imm_prob_3,             dtype: f32 }
+  - { idx: 101, name: pyro_armed_mask,        dtype: u8 }
+
+  # === Block 7: Saturation flags (102..103) — v5.4 ADDITION ===
+  - { idx: 102, name: fin_rate_limited_flag,     dtype: u16, desc: "Bit i set when fin i+1 was rate-limited this cycle" }
+  - { idx: 103, name: fin_position_limited_flag, dtype: u16, desc: "Bit i set when fin i+1 was position-limited this cycle" }

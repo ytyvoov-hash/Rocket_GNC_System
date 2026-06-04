@@ -1,0 +1,98 @@
+ #define True 1
+ #define False 0
+#define OFF 0xAF
+#define self_test  0x03
+#define IDLE 0xBF     // اذا قلع اليرنامج والكاميرا جاهزة
+#define Searching  0xAC
+#define track  0xAD
+uint8_t Mode_IPU = 0x00;  // هذا المتغيير هو لحالة الكاميرا اي نقوم بفحص الكاميرا اذا يوجد صورة نغيير هذا الى IDLE واذا لم توجد 0
+uint8_t Mode_cam = OFF;
+uint8_t mems_flagRX = False;
+uint8_t bufferTX[17];
+uint8_t bufferRX_RX[9];
+uint8_t received_date_RX[9];
+uint8_t Header_1_RX = 0x00;
+uint8_t Header_2_RX = 0x00;
+
+unsigned int CRC_16_Calc(unsigned char *ptr, int count)
+{
+unsigned int  crc, i;
+unsigned int Temp;
+crc = 0;
+while(--count >= 0)
+	{
+	//Temp=(int)*ptr++ << 8;
+	Temp=(int)*ptr;
+	Temp<<=8;
+	ptr++;
+	crc = crc ^ Temp;
+	for(i = 0; i < 8; ++i)
+			{
+			if(crc & 0x8000)
+				{
+				crc <<= 1 ;
+				crc ^= 0x1021;
+				}
+			else
+				crc <<= 1;
+				}
+	}
+	return (crc & 0xFFFF);
+}
+
+
+// بروتكول الارسال
+bufferTX [0] = 0xAA;
+bufferTX [1] = 0xCC;
+bufferTX [2] = (int16_t)(angle_x*100) & 0xff;
+bufferTX [3] = (int16_t)(angle_x*100) >> 8;
+bufferTX [4] = (int16_t)(angle_y*100) & 0xff;
+bufferTX [5] = (int16_t)(angle_y*100) >> 8;
+bufferTX [6] = (int16_t)(rateAngleX*100) & 0xff;
+bufferTX [7] = (int16_t)(rateAngleX*100) >> 8;
+bufferTX [8] = (int16_t)(rateAngleY*100)& 0xff;
+bufferTX [9] = (int16_t)(rateAngleY*100)  >> 8;
+bufferTX [10]= Mode_detect;   // متغير لحالة الكشف والتتبع  والكاميرا 
+bufferTX [11]= width_targ;
+bufferTX [12]= hight_targ ;
+bufferTX [13]= temp_CPU ;  //حرارة المعالج
+unsigned int CRC_TX = CRC_16_Calc(&bufferTX, 14);
+bufferTX [15]= CRC_TX & 0x00FF ;
+bufferTX [16]= CRC_TX  >> 8;
+
+// بروتكول الارستقبال بطول  9 بايت يبدا يستقبل اذا وصلت بيانات من RX يجعل RX_flagRX=true
+
+if(RX_flagRX){
+   RX_flagRX = False;
+   for(int i =0; i < 9; i++){
+     Header_1_RX = bufferRX_RX[i];
+     Header_2_RX = bufferRX_RX[i+1];
+     if (Header_1_RX == 0x55 && Header_2_RX == 0xAA){
+	 for(int indox =0; indox < 9; indox++){
+	    received_date_RX[indox] = bufferRX_RX[i+indox];
+	    bufferRX_RX[i+indox] = 0x00;
+	 }
+	 checksum_RX = 0xFF;
+	 unsigned int temp_byte = ((received_date_RX[8] << 8) | received_date_RX[7]) & 0xFFFF;
+	 checksum_RX = CRC_16_Calc(&received_date_RX, 7);
+	 if (checksum_RX == temp_byte){
+            Mode_cam = received_date_RX[2];
+            angle_yaw = (float)((int16_t)( received_date_RX[4] << 8) | (uint8_t )(received_date_RX[3])) / 100;
+            angle_pitch = (float)((int16_t)( received_date_RX[6] << 8) | (uint8_t )(received_date_RX[5])) / 100;
+            if (Mode_cam == Searching){
+                Mode_cam = Searching;
+            }
+            else if(Mode_cam == self_test){
+               if(Mode_IPU == 0x00){
+                  Mode_detect = no_camera;
+               }
+               else{
+                  Mode_detect = IDLE;  // اذا الكاميرا جاهزه 
+               }
+           }
+          }
+        break;
+        }
+      break;
+      }
+  }

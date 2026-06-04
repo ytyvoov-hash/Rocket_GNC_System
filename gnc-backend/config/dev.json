@@ -1,0 +1,68 @@
+{
+    "_comment": "Drogon dev config. Production uses config/prod.json with TLS 1.3.",
+    "listeners": [
+        {
+            "address": "0.0.0.0",
+            "port": 8080,
+            "https": false
+        }
+    ],
+    "app": {
+        "threads_num": 0,
+        "enable_session": false,
+        "document_root": "./",
+        "log": {
+            "log_path": "./logs",
+            "logfile_base_name": "gnc-backend",
+            "log_level": "DEBUG"
+        },
+        "max_connections": 100000,
+        "max_connections_per_ip": 0,
+        "use_brotli": false,
+        "use_gzip": true
+    },
+    "db_clients": [
+        {
+            "name": "gnc",
+            "rdbms": "postgresql",
+            "host": "127.0.0.1",
+            "port": 5432,
+            "dbname": "gnc",
+            "user": "gnc",
+            "passwd": "dev",
+            "connection_number": 4,
+            "is_fast": false,
+            "auto_batch": true
+        }
+    ],
+    "custom_config": {
+        "keycloak": {
+            "issuer": "http://localhost:8081/realms/gnc",
+            "audience": "gnc-frontend",
+            "jwks_uri": "http://localhost:8081/realms/gnc/protocol/openid-connect/certs",
+            "cache_ttl_s": 600
+        },
+        "minio": {
+            "endpoint": "http://localhost:9000",
+            "access_key": "minioadmin",
+            "secret_key": "minioadmin",
+            "bucket_goldens": "gnc-goldens",
+            "bucket_cad": "gnc-cad",
+            "bucket_firmware": "gnc-firmware"
+        },
+        "rockets_root": "m:/2026-5-18gnc-2/2026-5-18gnc-2/project_GNC-V6.0/rockets",
+        "schemas_root": "m:/2026-5-18gnc-2/2026-5-18gnc-2/project_GNC-V6.0/schemas",
+        "release_manifest": "m:/2026-5-18gnc-2/2026-5-18gnc-2/project_GNC-V6.0/release_manifest.yaml",
+        "actuator_library": "m:/2026-5-18gnc-2/2026-5-18gnc-2/project_GNC-V6.0/actuator_library.yaml",
+        "controller_library": "m:/2026-5-18gnc-2/2026-5-18gnc-2/project_GNC-V6.0/controller_library.yaml",
+        "device_assignments": "m:/2026-5-18gnc-2/2026-5-18gnc-2/project_GNC-V6.0/gnc-backend/var/gnc_device_assignments.json",
+        "audit_log_path": "m:/2026-5-18gnc-2/2026-5-18gnc-2/project_GNC-V6.0/gnc-backend/var/audit.jsonl",
+        "active_rocket_id": "BA",
+        "tcp_5900": {
+            "enabled": false,
+            "bind_address": "0.0.0.0",
+            "port": 5900,
+            "_comment": "Enable when flight computer is attached."
+        }
+    }
+}

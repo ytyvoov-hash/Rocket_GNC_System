@@ -1,0 +1,218 @@
+# Mission File Schema  (v5.4 §2.7)
+# Validates mission/<mission_id>.yaml
+# Field-for-field mirror of gnc-frontend/src/store/missionSlice.ts
+
+$schema: "https://json-schema.org/draft/2020-12/schema"
+$id: "gnc://schemas/mission_file.schema.yaml"
+title: "MissionFile"
+type: object
+required: [mission_id, rocket_id, flight_computer_path, loop_rate_hz, stages, estimator, optional_devices, safety_zone]
+additionalProperties: false
+
+properties:
+  mission_id:
+    type: string
+    pattern: "^[A-Za-z][A-Za-z0-9_-]*$"
+
+  rocket_id:
+    type: string
+    description: "Must resolve to an entry in release_manifest.committed_rockets[]."
+
+  flight_computer_path:
+    type: string
+    enum: [A, B]
+    description: "Path A = Snapdragon 845; Path B = STM32H743/H753. Decision 4."
+
+  loop_rate_hz:
+    type: number
+    description: "Path A range 50–200 (default 100); Path B range 100–500 (default 200). Decision 2."
+
+  locked:
+    type: boolean
+    default: false
+    description: "Set by POST /missions/{id}/lock; freezes the file for pre-launch."
+
+  target_ground_range_m:
+    type: number
+    minimum: 0
+
+  cep_target_m:
+    type: number
+    minimum: 0
+
+  guidance_reference_pitch_deg:
+    type: number
+    description: "Used by fixed_pitch autopilot mode."
+
+  stages:
+    type: array
+    minItems: 1
+    items: { $ref: "#/$defs/PerStageMission" }
+
+  estimator:
+    type: object
+    required: [approach]
+    properties:
+      approach:
+        type: string
+        enum: [single_filter, sequential, imm]
+
+  mhe:
+    type: object
+    properties:
+      enabled: { type: boolean, default: false }
+      horizon: { type: integer, minimum: 1 }
+      rate_hz: { type: number, exclusiveMinimum: 0 }
+      budget_overrun_mode:
+        type: string
+        enum: [skip, reduce_horizon, reduce_trust]
+
+  seeker:
+    type: object
+    properties:
+      enabled: { type: boolean, default: false }
+      mode: { type: string, enum: [strapdown, gimbaled] }
+      target_class: { type: string }
+      loss_of_lock_policy:
+        type: string
+        enum: [revert_trajectory, continue_PN, abort, operator_prompt]
+      camera_id: { type: string }
+      fov_deg:
+        type: array
+        minItems: 2
+        maxItems: 2
+        items: { type: number, exclusiveMinimum: 0 }
+      mount_isolation:
+        type: string
+        enum: [rigid, rubber, gel, gimbal_2axis]
+      los_rate_method:
+        type: string
+        enum: [savitzky_golay, first_order, state_observer]
+      pn_variant:
+        type: string
+        enum: [pure, true, augmented]
+      pn_gain_N: { type: number, exclusiveMinimum: 0 }
+      inference_target:
+        type: string
+        enum: [gpu, cpu, hexagon]
+
+  optional_devices:
+    type: object
+    required: [gps, radio]
+    properties:
+      gps:
+        type: object
+        required: [present]
+        properties:
+          present: { type: boolean }
+          sensor_id: { type: string }
+          fix_quality_required:
+            type: string
+            enum: [RTK_OR_SBAS, RTK, SBAS, GPS, ANY]
+          latency_ms: { type: number, default: 100 }
+      radio:
+        type: object
+        required: [present]
+        properties:
+          present: { type: boolean }
+          band: { type: string }
+          tx_power_dbm: { type: number }
+      warhead_fuse: { type: boolean, default: false }
+      engine_starter_1: { type: boolean, default: false }
+      engine_starter_2: { type: boolean, default: false }
+      separating_nail_1: { type: boolean, default: false }
+      separating_nail_2: { type: boolean, default: false }
+      jamble: { type: boolean, default: false }
+      external_imu:
+        type: object
+        properties:
+          present: { type: boolean, default: false }
+      flight_termination_system:
+        type: object
+        properties:
+          present: { type: boolean, default: false }
+
+  logging_profile:
+    type: string
+    enum: [FULL, FLIGHT, MINIMAL]
+    default: FULL
+
+  logging_completeness_target:
+    type: number
+    minimum: 0
+    maximum: 1
+    default: 1.0
+
+  safety_zone:
+    type: object
+    required: [type, abort_on_breach]
+    properties:
+      type:
+        type: string
+        enum: [polygon, circle, vlos_or_tethered]
+      vertices:
+        type: array
+        items:
+          type: array
+          minItems: 2
+          maxItems: 2
+          items: { type: number }
+      center:
+        type: array
+        minItems: 2
+        maxItems: 2
+        items: { type: number }
+      radius_m:
+        type: number
+        exclusiveMinimum: 0
+      abort_on_breach: { type: boolean }
+
+  validation:
+    type: object
+    properties:
+      status: { type: string, enum: [not_run, valid, invalid] }
+      errors: { type: array, items: { type: string } }
+
+  locked_at:
+    type: string
+    format: date-time
+    description: "Set by /missions/{id}/lock."
+
+  locked_actuator_library_sha256:
+    type: string
+    description: "SHA-256 of actuator_library.yaml at lock time (§2.8.7)."
+
+  locked_controller_library_sha256:
+    type: string
+
+$defs:
+  PerStageMission:
+    type: object
+    required: [stage_id, autopilot_mode]
+    properties:
+      stage_id: { type: string }
+      autopilot_mode:
+        type: string
+        enum: [auto_shape, fixed_pitch, passive_ballistic, waypoint, terminal_homing]
+      autopilot_params:
+        type: object
+        additionalProperties: true
+      abort_policy:
+        type: object
+        properties:
+          alpha_max_deg: { type: number }
+          rate_max_deg_s: { type: number }
+          estimator_divergence: { type: number }
+          link_loss_timeout_s: { type: number }
+          recurring_saturation:
+            type: object
+            properties:
+              enabled: { type: boolean, default: true }
+              mode:
+                type: string
+                enum: [cruise_percent, continuous_block, both]
+              cruise_percent_threshold:
+                type: number
+                minimum: 0
+                maximum: 1
+              continuous_block_ms: { type: number, minimum: 0 }

@@ -1,0 +1,43 @@
+# Canonical Rocket properties file for AS
+schema_version: "v5.4"
+template_id: "new"
+display_name: "AS"
+type: "Canard-Controlled 2-Stage"
+status: "draft"
+num_stages: 2
+
+stages:
+  - stage_id: "new_S1"
+    name: "Stage 1"
+    stage_index: 0
+    is_terminal: true
+    has_warhead: false
+    physical:
+      mass_dry_kg: 200
+      propellant_mass_kg: 150
+      insulation_mass_kg: 2
+      cg_dry_body_m: [1.5, 0.0, 0.0]
+      cg_full_body_m: [1.8, 0.0, 0.0]
+      inertia_dry_kgm2: [2.0, 450.0, 450.0]
+      inertia_full_kgm2: [3.5, 600.0, 600.0]
+    geometry:
+      ref_diameter_m: 0.25
+      ref_length_m: 3.5
+      ref_area_m2: 0.0314
+    controller_type: "hybrid"
+    controller_ref: "pid_fins_baseline"
+    seeker_capable: false
+    autopilot:
+      enabled: true
+      capable_modes: ["auto_shape", "fixed_pitch", "passive_ballistic"]
+    fin_config:
+      sets:
+        - set_index: 0
+          fin_count: 4
+          S_fin_m2: 0.015
+          c_fin_m: 0.12
+          x_fin_m: 0.8
+          delta_max_deg: 20.0
+          delta_dot_max_deg_s: 300.0
+          actuator_ref: "default_4020"
+          config_type: "X"

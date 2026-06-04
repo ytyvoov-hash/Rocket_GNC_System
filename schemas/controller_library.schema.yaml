@@ -1,0 +1,94 @@
+# Controller Library Schema  (v5.4 §2.9, §5.2)
+# Validates controller_library.yaml at project root.
+# Each entry is a named gain set; templates reference them via stages[].controller_ref (C22).
+
+$schema: "https://json-schema.org/draft/2020-12/schema"
+$id: "gnc://schemas/controller_library.schema.yaml"
+title: "ControllerLibrary"
+type: object
+required: [controllers]
+additionalProperties: false
+
+properties:
+  schema_version:
+    type: string
+    default: "v5.4"
+
+  controllers:
+    type: object
+    description: "Map of controller_id -> ControllerEntry."
+    minProperties: 1
+    patternProperties:
+      "^[A-Za-z][A-Za-z0-9_.-]*$":
+        $ref: "#/$defs/ControllerEntry"
+    additionalProperties: false
+
+$defs:
+  ControllerEntry:
+    type: object
+    required: [algorithm, gains]
+    properties:
+      description: { type: string }
+      algorithm:
+        type: string
+        enum:
+          - pid
+          - lqr
+          - lqg
+          - h_infinity
+          - sliding_mode
+          - backstepping
+          - mpc_linear
+          - mpc_nonlinear
+          - mrac
+          - l1_adaptive
+        description: "Day-1 algorithm registry from §5.2."
+
+      gains:
+        type: object
+        description: "Algorithm-specific gain parameters. Validator C22 enforces required keys per algorithm."
+        additionalProperties: true
+
+      gain_schedule:
+        type: object
+        description: "Optional gain scheduling block per §5.4."
+        properties:
+          interpolation:
+            type: string
+            enum: [linear, cubic, linear_with_cubic_boundaries]
+            default: linear_with_cubic_boundaries
+          axes:
+            type: array
+            description: "Schedule axes, e.g. [mach, altitude]."
+            items: { type: string }
+          operating_points:
+            type: array
+            description: "List of {coordinates, gains} entries."
+            items:
+              type: object
+              required: [coordinates, gains]
+              properties:
+                coordinates:
+                  type: array
+                  items: { type: number }
+                gains: { type: object, additionalProperties: true }
+
+      anti_windup:
+        type: object
+        properties:
+          method:
+            type: string
+            enum: [integrator_freeze, back_calculation, clamping, none]
+            default: integrator_freeze
+          back_calc_gain: { type: number, minimum: 0 }
+
+      saturation_strategy:
+        type: string
+        enum: [uniform_reduction, redistribute, demand_reduction_upstream]
+        default: uniform_reduction
+        description: "Decision 14 mixer strategy."
+
+      sampling_rate_hz:
+        type: number
+        exclusiveMinimum: 0
+        description: "Defaults to mission.loop_rate_hz; override only if rate-decoupled."

@@ -1,0 +1,514 @@
+﻿import React, { useState, useEffect, useRef } from 'react';
+import { Play, Square, Settings2, BarChart2, AlertOctagon, RefreshCw, Cpu, Layers, Box, ShieldAlert, Activity, Download } from 'lucide-react';
+import clsx from 'clsx';
+import { startSimulation, stopSimulation } from './services/api';
+import { connectSimulation, disconnectSimulation } from './services/simulationWs';
+import { useAppSelector, useAppDispatch } from './store/hooks';
+import { resetTelemetry } from './store/telemetrySlice';
+import { store } from './store/store';
+import uPlot from 'uplot';
+import 'uplot/dist/uPlot.min.css';
+import S7_3DTelemetry from './S7_3DTelemetry';
+import S12_FaultInjectionLab from './S12_FaultInjectionLab';
+
+export default function S6c_SimFull({ hideHeader }: { hideHeader?: boolean }) {
+  const dispatch = useAppDispatch();
+  const telemetry = useAppSelector(s => s.telemetry);
+  const rocketState = useAppSelector(s => s.rocket);
+  
+  const [loading, setLoading] = useState(false);
+  const [error, setError] = useState('');
+  const [activeRunId, setActiveRunId] = useState<string | null>(null);
+
+  const kinChartRef = useRef<HTMLDivElement>(null);
+  const attChartRef = useRef<HTMLDivElement>(null);
+  const aeroChartRef = useRef<HTMLDivElement>(null);
+  
+  const kinPlotRef = useRef<uPlot | null>(null);
+  const attPlotRef = useRef<uPlot | null>(null);
+  const aeroPlotRef = useRef<uPlot | null>(null);
+
+  const historyRef = useRef<{ 
+    t: number[]; alt: number[]; vel: number[]; mach: number[]; q: number[];
+    pitch: number[]; yaw: number[]; roll: number[]; phase: string[];
+  }>({
+    t: [], alt: [], vel: [], mach: [], q: [], pitch: [], yaw: [], roll: [], phase: []
+  });
+
+  // Simulation parameters derived from Redux
+  const rocket = useAppSelector(s => s.rocket.activeRocket);
+  const mission = useAppSelector(s => s.mission);
+  
+  const massInit = rocket?.mass ?? 100;
+  const s0 = rocket?.stages[0];
+  const massDry = s0 ? s0.physical.mass_dry_kg : 70;
+  const thrust = s0?.propulsion ? s0.propulsion.thrust_multiplier * 5000 : 5000;
+  const burnTime = s0?.propulsion ? s0.propulsion.burn_time_s : 4.0;
+  const dragCdA = s0 ? s0.geometry.ref_area_m2 * 0.4 : 0.05;
+
+  const [gravity, setGravity] = useState(9.81);
+  const [tEnd, setTEnd] = useState(120);
+
+  // Editable Mission Config Overrides
+  const [launchLat, setLaunchLat] = useState(mission.launch?.latitude ?? 16.45);
+  const [launchLon, setLaunchLon] = useState(mission.launch?.longitude ?? 44.11);
+  const [launchAlt, setLaunchAlt] = useState(mission.launch?.altitude ?? 0);
+  
+  const [targetRange, setTargetRange] = useState(mission.target?.range_m ?? 10000);
+  const [targetBearing, setTargetBearing] = useState(mission.target?.bearing_deg ?? 0);
+  const [targetAlt, setTargetAlt] = useState(mission.target?.altitude ?? 0);
+
+  // Extra environment selections
+  const [windModel, setWindModel] = useState('Standard');
+  const [atmosphere, setAtmosphere] = useState('US Standard 1976');
+  const [faultServoJam, setFaultServoJam] = useState(false);
+  const [faultGpsLoss, setFaultGpsLoss] = useState(false);
+
+  useEffect(() => {
+    // Cleanup WebSocket on unmount
+    return () => {
+      disconnectSimulation();
+    };
+  }, []);
+
+  // Update uPlot history buffer on telemetry updates
+  useEffect(() => {
+    if (telemetry.time === 0) {
+      historyRef.current = { t: [], alt: [], vel: [], mach: [], q: [], pitch: [], yaw: [], roll: [], phase: [] };
+      const empty: uPlot.AlignedData = [[0], [0], [0]];
+      kinPlotRef.current?.setData(empty);
+      attPlotRef.current?.setData([[0], [0], [0], [0]]);
+      aeroPlotRef.current?.setData(empty);
+      return;
+    }
+    const hist = historyRef.current;
+    if (hist.t.length > 0 && hist.t[hist.t.length - 1] === telemetry.time) {
+      return;
+    }
+    hist.t.push(telemetry.time);
+    hist.alt.push(telemetry.altitude);
+    hist.vel.push(telemetry.velocity);
+    hist.mach.push(telemetry.mach);
+    hist.q.push(telemetry.q / 1000); // kPa
+    hist.pitch.push(telemetry.attitude.pitch);
+    hist.yaw.push(telemetry.attitude.yaw);
+    hist.roll.push(telemetry.attitude.roll);
+    hist.phase.push(telemetry.dynamicPhase || telemetry.phase || 'PRELAUNCH');
+
+    // Keep full history in memory for CSV, but limit plot rendering to last N points for performance
+    const plotSliceLen = 500;
+    const sliceStart = Math.max(0, hist.t.length - plotSliceLen);
+
+    const tSlice = hist.t.slice(sliceStart);
+
+    if (kinPlotRef.current && tSlice.length > 0) {
+      kinPlotRef.current.setData([tSlice, hist.alt.slice(sliceStart), hist.vel.slice(sliceStart)]);
+    }
+    if (attPlotRef.current && tSlice.length > 0) {
+      attPlotRef.current.setData([tSlice, hist.pitch.slice(sliceStart), hist.yaw.slice(sliceStart), hist.roll.slice(sliceStart)]);
+    }
+    if (aeroPlotRef.current && tSlice.length > 0) {
+      aeroPlotRef.current.setData([tSlice, hist.mach.slice(sliceStart), hist.q.slice(sliceStart)]);
+    }
+  }, [telemetry.time, telemetry.altitude, telemetry.velocity, telemetry.mach, telemetry.q, telemetry.attitude, telemetry.phase, telemetry.dynamicPhase]);
+
+  // Instantiate high-performance uPlot canvases
+  useEffect(() => {
+    if (!kinChartRef.current || !attChartRef.current || !aeroChartRef.current) return;
+
+    const commonOpts = {
+      height: 120,
+      scales: { x: { time: false } },
+      axes: [
+        { stroke: '#64748b', grid: { stroke: '#33415533' }, size: 30 },
+        { stroke: '#64748b', grid: { stroke: '#33415533' }, size: 40 },
+      ],
+      cursor: { show: true },
+      legend: { show: true, live: true }
+    };
+
+    const kinOpts: uPlot.Options = {
+      ...commonOpts,
+      width: kinChartRef.current.clientWidth,
+      series: [
+        { label: 'Time' },
+        { label: 'Alt(m)', stroke: '#10b981', width: 2 },
+        { label: 'Vel(m/s)', stroke: '#3b82f6', width: 2 },
+      ]
+    };
+
+    const attOpts: uPlot.Options = {
+      ...commonOpts,
+      width: attChartRef.current.clientWidth,
+      series: [
+        { label: 'Time' },
+        { label: 'Pitch', stroke: '#f43f5e', width: 2 },
+        { label: 'Yaw', stroke: '#a855f7', width: 2 },
+        { label: 'Roll', stroke: '#f59e0b', width: 2 },
+      ]
+    };
+
+    const aeroOpts: uPlot.Options = {
+      ...commonOpts,
+      width: aeroChartRef.current.clientWidth,
+      series: [
+        { label: 'Time' },
+        { label: 'Mach', stroke: '#eab308', width: 2 },
+        { label: 'Q(kPa)', stroke: '#06b6d4', width: 2 },
+      ]
+    };
+
+    kinPlotRef.current = new uPlot(kinOpts, [[0], [0], [0]], kinChartRef.current);
+    attPlotRef.current = new uPlot(attOpts, [[0], [0], [0], [0]], attChartRef.current);
+    aeroPlotRef.current = new uPlot(aeroOpts, [[0], [0], [0]], aeroChartRef.current);
+
+    const handleResize = () => {
+      kinPlotRef.current?.setSize({ width: kinChartRef.current!.clientWidth, height: 120 });
+      attPlotRef.current?.setSize({ width: attChartRef.current!.clientWidth, height: 120 });
+      aeroPlotRef.current?.setSize({ width: aeroChartRef.current!.clientWidth, height: 120 });
+    };
+    window.addEventListener('resize', handleResize);
+
+    return () => {
+      window.removeEventListener('resize', handleResize);
+      kinPlotRef.current?.destroy();
+      attPlotRef.current?.destroy();
+      aeroPlotRef.current?.destroy();
+    };
+  }, []);
+
+  const handleStartSim = async () => {
+    setLoading(true);
+    setError('');
+    dispatch(resetTelemetry());
+
+    try {
+      const payload = {
+        template_id: rocketState.activeRocket?.id || 'BA',
+        phases: mission.phases,
+        sim: {
+          sim_mode: 'full',
+          mass_init_kg: Number(massInit) || 100,
+          mass_dry_kg: Number(massDry) || 70,
+          thrust_N: Number(thrust) || 5000,
+          burn_time_s: Number(burnTime) || 4.0,
+          cd_A_m2: Number(dragCdA) || 0.05,
+          gravity_m_s2: Number(gravity) || 9.81,
+          t_end_s: Number(tEnd) || 120,
+          dt_s: 0.01,
+          initial_conditions: {
+            ...mission.initial_conditions,
+            position: [0, 0, -(Number(launchAlt) || 0)],
+            attitude: [0.7071068, 0.0, 0.7071068, 0.0]
+          },
+          launch: { latitude: Number(launchLat) || 0, longitude: Number(launchLon) || 0, altitude: Number(launchAlt) || 0 },
+          target: { range_m: Number(targetRange) || 0, bearing_deg: Number(targetBearing) || 0, altitude: Number(targetAlt) || 0 }
+        },
+        metadata: {
+          windModel,
+          atmosphere,
+          faults: { servoJam: faultServoJam, gpsLoss: faultGpsLoss }
+        }
+      };
+
+      const res = await startSimulation(payload);
+      if (res && res.runId) {
+        setActiveRunId(res.runId);
+        const wsProtocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
+        const wsHost = import.meta.env.VITE_WS_URL || `${window.location.hostname}:8080`;
+        const wsUrl = `${wsProtocol}//${wsHost}/ws/simulation?runId=${res.runId}`;
+        connectSimulation(wsUrl, store);
+      } else {
+        throw new Error('No run ID returned from backend.');
+      }
+    } catch (err: any) {
+      console.error('Failed to start simulation:', err);
+      setError(err.response?.data?.details || 'Backend rejected simulation trigger. Verify service.');
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const handleStopSim = async () => {
+    if (!activeRunId) return;
+    setLoading(true);
+    try {
+      await stopSimulation(activeRunId);
+    } catch (err) {
+      console.error('Failed to stop simulation:', err);
+    } finally {
+      disconnectSimulation();
+      setActiveRunId(null);
+      setLoading(false);
+    }
+  };
+
+  const handleDownloadLog = () => {
+    const hist = historyRef.current;
+    if (hist.t.length === 0) return;
+
+    const headers = ['Time(s)', 'Altitude(m)', 'Velocity(m/s)', 'Mach', 'Q(kPa)', 'Pitch(deg)', 'Yaw(deg)', 'Roll(deg)', 'Phase'];
+    let csvContent = headers.join(',') + '\n';
+
+    for (let i = 0; i < hist.t.length; i++) {
+      const row = [
+        hist.t[i].toFixed(3),
+        hist.alt[i].toFixed(2),
+        hist.vel[i].toFixed(2),
+        hist.mach[i].toFixed(3),
+        hist.q[i].toFixed(3),
+        hist.pitch[i].toFixed(2),
+        hist.yaw[i].toFixed(2),
+        hist.roll[i].toFixed(2),
+        hist.phase[i]
+      ];
+      csvContent += row.join(',') + '\n';
+    }
+
+    const blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8;' });
+    const url = URL.createObjectURL(blob);
+    const link = document.createElement('a');
+    link.href = url;
+    link.setAttribute('download', `simulation_log_${activeRunId || 'run'}.csv`);
+    document.body.appendChild(link);
+    link.click();
+    document.body.removeChild(link);
+  };
+
+  const progressPct = Math.min((telemetry.time / tEnd) * 100, 100);
+
+  const [simTab, setSimTab] = useState<'sim' | '3d' | 'faults'>('sim');
+
+  const simTabs = [
+    { id: 'sim' as const, label: 'Simulation', icon: Cpu },
+    { id: '3d' as const, label: '3D View', icon: Box },
+    { id: 'faults' as const, label: 'Fault Scenarios', icon: ShieldAlert },
+  ];
+
+  return (
+    <div className="h-full flex flex-col">
+      {!hideHeader && (
+        <header className="flex justify-between items-start mb-4">
+          <div>
+            <h1 className="text-3xl font-bold tracking-tight text-white mb-2 flex items-center gap-3">
+              <Activity className="w-8 h-8 text-fuchsia-500" /> Hardware-in-the-Loop Simulation
+            </h1>
+            <p className="text-slate-400">Full 6-DOF simulation with sensor noise models, latency, fault injection, and firmware execution.</p>
+          </div>
+          {activeRunId && (
+            <div className="flex items-center gap-2 px-3 py-1.5 bg-fuchsia-500/10 border border-fuchsia-500/20 text-fuchsia-400 text-xs font-semibold rounded-full font-mono">
+              Active HIL Run: {activeRunId.slice(0, 12)}
+            </div>
+          )}
+        </header>
+      )}
+
+      {/* Internal Tab Bar */}
+      <div className="flex border-b border-slate-700/50 mb-6">
+        {simTabs.map((tab) => (
+          <button
+            key={tab.id}
+            onClick={() => setSimTab(tab.id)}
+            className={clsx(
+              'flex items-center gap-2 px-6 py-3 font-semibold transition-all border-b-2',
+              simTab === tab.id
+                ? 'border-blue-500 text-blue-400 bg-blue-500/5'
+                : 'border-transparent text-slate-400 hover:text-slate-200 hover:bg-slate-800/50'
+            )}
+          >
+            <tab.icon className="w-4 h-4" />
+            {tab.label}
+          </button>
+        ))}
+      </div>
+
+      {/* 3D View Tab */}
+      {simTab === '3d' && (
+        <div className="flex-1 min-h-0">
+          <S7_3DTelemetry isEmbedded />
+        </div>
+      )}
+
+      {/* Fault Scenarios Tab */}
+      {simTab === 'faults' && (
+        <div className="flex-1 min-h-0 overflow-y-auto">
+          <S12_FaultInjectionLab isEmbedded />
+        </div>
+      )}
+
+      {/* Simulation Tab */}
+      {simTab === 'sim' && (
+        <div className="flex-1 flex flex-col space-y-6 min-h-0 overflow-y-auto">
+
+          {error && (
+            <div className="bg-red-500/10 border border-red-500/20 p-4 rounded-xl text-red-400 text-sm font-medium flex items-center gap-3">
+              <AlertOctagon className="w-5 h-5 shrink-0" />
+              {error}
+            </div>
+          )}
+
+          <div className="grid grid-cols-1 lg:grid-cols-4 gap-6 flex-1">
+            
+            {/* Controls Sidebar */}
+            <div className="col-span-1 space-y-4">
+              
+              {/* Editable Launch Site */}
+              <div className="bg-slate-900/40 border border-slate-700/50 rounded-xl p-5 shadow-lg backdrop-blur-sm">
+                <h3 className="font-semibold mb-4 border-b border-slate-800 pb-2 flex items-center gap-2 text-blue-400">
+                  <Settings2 className="w-4 h-4" /> Launch Site
+                </h3>
+                <div className="space-y-3 text-xs">
+                  <div>
+                    <label className="text-slate-400 block mb-1">Latitude (Â°)</label>
+                    <input type="number" step="0.0001" value={launchLat} onChange={e => setLaunchLat(parseFloat(e.target.value))} disabled={telemetry.isSimRunning} className="w-full bg-slate-800 border border-slate-700 rounded p-2 text-slate-200" />
+                  </div>
+                  <div>
+                    <label className="text-slate-400 block mb-1">Longitude (Â°)</label>
+                    <input type="number" step="0.0001" value={launchLon} onChange={e => setLaunchLon(parseFloat(e.target.value))} disabled={telemetry.isSimRunning} className="w-full bg-slate-800 border border-slate-700 rounded p-2 text-slate-200" />
+                  </div>
+                  <div>
+                    <label className="text-slate-400 block mb-1">Altitude (m)</label>
+                    <input type="number" step="1" value={launchAlt} onChange={e => setLaunchAlt(parseFloat(e.target.value))} disabled={telemetry.isSimRunning} className="w-full bg-slate-800 border border-slate-700 rounded p-2 text-slate-200" />
+                  </div>
+                </div>
+              </div>
+
+              {/* Editable Target */}
+              <div className="bg-slate-900/40 border border-slate-700/50 rounded-xl p-5 shadow-lg backdrop-blur-sm">
+                <h3 className="font-semibold mb-4 border-b border-slate-800 pb-2 flex items-center gap-2 text-emerald-400">
+                  <AlertOctagon className="w-4 h-4" /> Target Info
+                </h3>
+                <div className="space-y-3 text-xs">
+                  <div>
+                    <label className="text-slate-400 block mb-1">Range (m)</label>
+                    <input type="number" step="1" value={targetRange} onChange={e => setTargetRange(parseFloat(e.target.value))} disabled={telemetry.isSimRunning} className="w-full bg-slate-800 border border-slate-700 rounded p-2 text-slate-200" />
+                  </div>
+                  <div>
+                    <label className="text-slate-400 block mb-1">Bearing (Â°)</label>
+                    <input type="number" step="1" value={targetBearing} onChange={e => setTargetBearing(parseFloat(e.target.value))} disabled={telemetry.isSimRunning} className="w-full bg-slate-800 border border-slate-700 rounded p-2 text-slate-200" />
+                  </div>
+                  <div>
+                    <label className="text-slate-400 block mb-1">Target Altitude (m)</label>
+                    <input type="number" step="1" value={targetAlt} onChange={e => setTargetAlt(parseFloat(e.target.value))} disabled={telemetry.isSimRunning} className="w-full bg-slate-800 border border-slate-700 rounded p-2 text-slate-200" />
+                  </div>
+                </div>
+              </div>
+
+              {/* Environment */}
+              <div className="bg-slate-900/40 border border-slate-700/50 rounded-xl p-5 shadow-lg backdrop-blur-sm">
+                <h3 className="font-semibold mb-4 border-b border-slate-800 pb-2 flex items-center gap-2">
+                  <Layers className="w-4 h-4 text-slate-400" /> Environment
+                </h3>
+                <div className="space-y-3 text-xs">
+                  <div>
+                    <label className="text-slate-400 block mb-1">Wind Model</label>
+                    <select value={windModel} onChange={e => setWindModel(e.target.value)} disabled={telemetry.isSimRunning} className="w-full bg-slate-800 border border-slate-700 rounded p-2 text-slate-200">
+                      <option value="Standard">Standard (Constant)</option>
+                      <option value="Turbulence">Turbulence (MIL-F-8785C)</option>
+                    </select>
+                  </div>
+                  <div>
+                    <label className="text-slate-400 block mb-1">Atmosphere</label>
+                    <select value={atmosphere} onChange={e => setAtmosphere(e.target.value)} disabled={telemetry.isSimRunning} className="w-full bg-slate-800 border border-slate-700 rounded p-2 text-slate-200">
+                      <option value="US Standard 1976">US Standard 1976</option>
+                      <option value="NRLMSISE-00">NRLMSISE-00 (High Alt)</option>
+                    </select>
+                  </div>
+                </div>
+              </div>
+            </div>
+
+            {/* Main View Grid */}
+            <div className="col-span-3 bg-slate-900/40 border border-slate-700/50 rounded-xl flex flex-col overflow-hidden relative shadow-2xl backdrop-blur-sm">
+              <div className="p-6 border-b border-slate-700/50 flex justify-between items-center bg-slate-800/30">
+                <div className="flex gap-4">
+                  <button 
+                    onClick={handleStartSim}
+                    disabled={telemetry.isSimRunning || loading}
+                    className="flex items-center gap-2 bg-emerald-600 hover:bg-emerald-500 disabled:bg-emerald-600/30 px-5 py-2.5 rounded-lg font-bold transition-all shadow-[0_0_15px_rgba(16,185,129,0.3)] disabled:shadow-none"
+                  >
+                    {loading && !activeRunId ? <RefreshCw className="w-5 h-5 animate-spin" /> : <Play className="w-5 h-5 fill-current" />}
+                    Start Physics Run
+                  </button>
+                  <button 
+                    onClick={handleStopSim}
+                    disabled={!telemetry.isSimRunning || loading}
+                    className="flex items-center gap-2 bg-red-600 hover:bg-red-500 disabled:bg-red-600/30 px-5 py-2.5 rounded-lg font-bold transition-all shadow-[0_0_15px_rgba(239,68,68,0.3)] disabled:shadow-none"
+                  >
+                    {loading && activeRunId ? <RefreshCw className="w-5 h-5 animate-spin" /> : <Square className="w-5 h-5 fill-current" />}
+                    Stop / Abort
+                  </button>
+                  <button
+                    onClick={handleDownloadLog}
+                    disabled={historyRef.current.t.length === 0}
+                    className="flex items-center gap-2 bg-slate-700 hover:bg-slate-600 disabled:bg-slate-800 disabled:text-slate-500 px-5 py-2.5 rounded-lg font-bold transition-all"
+                  >
+                    <Download className="w-5 h-5" />
+                    Download Log (CSV)
+                  </button>
+                </div>
+                <div className="font-mono text-xl tracking-wider text-slate-300">
+                  T+ {telemetry.time.toFixed(2)}s
+                </div>
+              </div>
+
+              <div className="flex-1 p-6 flex flex-col justify-center relative space-y-6">
+                
+                {/* Progress Bar & Phase */}
+                <div>
+                  <div className="flex justify-between text-sm mb-2 font-medium">
+                    <span className="text-blue-400 flex items-center gap-2">
+                      <span className={clsx("inline-block w-2.5 h-2.5 rounded-full", telemetry.isSimRunning ? "bg-blue-500 animate-pulse" : "bg-slate-500")} />
+                      Flight Phase: {telemetry.dynamicPhase || telemetry.phase || 'PRELAUNCH'}
+                    </span>
+                    <span className="text-slate-400 font-mono">{progressPct.toFixed(1)}%</span>
+                  </div>
+                  <div className="h-4 w-full bg-slate-800 rounded-full overflow-hidden shadow-inner border border-slate-700">
+                    <div 
+                      className="h-full bg-gradient-to-r from-blue-600 to-cyan-400 transition-all duration-100 ease-linear"
+                      style={{ width: `${progressPct}%` }}
+                    />
+                  </div>
+                </div>
+
+                {/* KPI Cards */}
+                <div className="grid grid-cols-3 gap-4 text-center font-mono">
+                  <div className="p-4 bg-slate-800/40 rounded-lg border border-slate-700/50 shadow-md">
+                    <div className="text-slate-500 text-xs mb-1 uppercase font-semibold tracking-wider">MACH</div>
+                    <div className="text-2xl text-blue-300 font-bold">{telemetry.mach.toFixed(2)}</div>
+                  </div>
+                  <div className="p-4 bg-slate-800/40 rounded-lg border border-slate-700/50 shadow-md">
+                    <div className="text-slate-500 text-xs mb-1 uppercase font-semibold tracking-wider">ALTITUDE</div>
+                    <div className="text-2xl text-emerald-300 font-bold">{telemetry.altitude.toFixed(1)} m</div>
+                  </div>
+                  <div className="p-4 bg-slate-800/40 rounded-lg border border-slate-700/50 shadow-md">
+                    <div className="text-slate-500 text-xs mb-1 uppercase font-semibold tracking-wider">Q (Dynamic Pressure)</div>
+                    <div className="text-2xl text-orange-300 font-bold">{(telemetry.q / 1000).toFixed(2)} kPa</div>
+                  </div>
+                </div>
+
+                {/* Live Charts Grid */}
+                <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+                  <div className="border border-slate-800 rounded-xl bg-slate-950/40 p-3 overflow-hidden flex flex-col">
+                    <div className="text-[10px] text-slate-400 mb-2 uppercase font-mono font-semibold text-center border-b border-slate-800 pb-1">Kinematics</div>
+                    <div ref={kinChartRef} className="w-full flex-1 min-h-[120px]" />
+                  </div>
+                  <div className="border border-slate-800 rounded-xl bg-slate-950/40 p-3 overflow-hidden flex flex-col">
+                    <div className="text-[10px] text-slate-400 mb-2 uppercase font-mono font-semibold text-center border-b border-slate-800 pb-1">Attitude</div>
+                    <div ref={attChartRef} className="w-full flex-1 min-h-[120px]" />
+                  </div>
+                  <div className="border border-slate-800 rounded-xl bg-slate-950/40 p-3 overflow-hidden flex flex-col">
+                    <div className="text-[10px] text-slate-400 mb-2 uppercase font-mono font-semibold text-center border-b border-slate-800 pb-1">Aerodynamics</div>
+                    <div ref={aeroChartRef} className="w-full flex-1 min-h-[120px]" />
+                  </div>
+                </div>
+
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
+

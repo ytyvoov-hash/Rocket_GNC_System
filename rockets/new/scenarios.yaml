@@ -1,0 +1,4 @@
+schema_version: "v5.4"
+scenarios:
+  - name: "Nominal Ascent"
+    wind_speed_m_s: 0.0
