@@ -117,3 +117,59 @@ TEST_CASE("Zero dynamic pressure yields zero deflection", "[alloc]") {
         CHECK(cmds.fins_rad[i] == 0.0);
     }
 }
+
+// ---------------------------------------------------------------------------
+// v8 P3.2 — equivalent deflection (delta -> aero deck index).
+// equivalentDeflections() must recover the legacy per-axis mapping for the
+// cruciform layout and generalise to ring/canard. This is what the 6-DOF plant
+// uses to source the realised control moment from a delta-swept aero deck.
+// ---------------------------------------------------------------------------
+TEST_CASE("equivalentDeflections recovers the cruciform per-axis mapping", "[alloc][delta]") {
+    FinAllocator alloc(FinGeometry::cruciform4(0.1, 0.5, 0.5));
+    ActuatorCommands cmds;
+    cmds.n_fins = 4;
+    // eff: 0={+Cl,0,+Cn} 1={+Cl,+Cm,0} 2={-Cl,0,+Cn} 3={-Cl,+Cm,0}
+    cmds.fins_rad = {0.10, 0.20, -0.04, 0.06};
+
+    const Vec3 def = alloc.equivalentDeflections(cmds);
+    // pitch = mean of pitch fins (1,3); yaw = mean of yaw fins (0,2)
+    CHECK_THAT(def.y, WithinAbs((0.20 + 0.06) / 2.0, 1e-12));   // pitch
+    CHECK_THAT(def.z, WithinAbs((0.10 + (-0.04)) / 2.0, 1e-12)); // yaw
+    // roll = (d0 + d1 - d2 - d3)/4  (signs from the roll effectiveness row)
+    CHECK_THAT(def.x, WithinAbs((0.10 + 0.20 - (-0.04) - 0.06) / 4.0, 1e-12)); // roll
+}
+
+TEST_CASE("equivalentDeflections is consistent with the allocated moment sign", "[alloc][delta]") {
+    FinAllocator alloc(FinGeometry::cruciform4(0.1, 0.5, 0.5));
+    const auto st = nominal_state();
+
+    // A positive pitch demand should yield a positive pitch-equivalent
+    // deflection; a negative demand, negative.
+    const auto up = alloc.allocate(demand(0.0, 40.0, 0.0), st);
+    const auto dn = alloc.allocate(demand(0.0, -40.0, 0.0), st);
+    CHECK(alloc.equivalentDeflections(up).y > 1e-6);
+    CHECK(alloc.equivalentDeflections(dn).y < -1e-6);
+    // A pure pitch demand produces (near) zero roll/yaw equivalent deflection.
+    CHECK_THAT(alloc.equivalentDeflections(up).x, WithinAbs(0.0, 1e-9));
+    CHECK_THAT(alloc.equivalentDeflections(up).z, WithinAbs(0.0, 1e-9));
+}
+
+TEST_CASE("equivalentDeflections handles ring layouts and empty commands", "[alloc][delta]") {
+    FinAllocator ring(FinGeometry::ring(8, 0.2, 0.6));
+    const auto st = nominal_state();
+    const auto cmds = ring.allocate(demand(15.0, 40.0, 25.0), st);
+    const Vec3 def = ring.equivalentDeflections(cmds);
+    // All three axes engaged -> all equivalent deflections are finite & bounded.
+    CHECK(std::isfinite(def.x));
+    CHECK(std::isfinite(def.y));
+    CHECK(std::isfinite(def.z));
+    CHECK(std::abs(def.y) <= 0.35 + 1e-9);
+
+    // A zero command vector maps to zero deflection on every axis.
+    ActuatorCommands zero;
+    zero.n_fins = 8;
+    const Vec3 zdef = ring.equivalentDeflections(zero);
+    CHECK_THAT(zdef.x, WithinAbs(0.0, 1e-12));
+    CHECK_THAT(zdef.y, WithinAbs(0.0, 1e-12));
+    CHECK_THAT(zdef.z, WithinAbs(0.0, 1e-12));
+}

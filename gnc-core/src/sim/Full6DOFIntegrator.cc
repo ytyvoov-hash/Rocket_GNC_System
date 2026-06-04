@@ -285,19 +285,49 @@ Derivative compute_derivative(const State& s, const SimConfig& cfg, const gnc::c
             M_aero_b.z += q_dyn * S_ref * L_ref * damp.Clp * (s.w.z * L_2V); // Roll damping
         }
 
-        // Apply Fin Deflection (assumed 0 deg for unguided base sim)
-        if (cfg.fin_deflection_coeffs && cfg.fin_deflection_coeffs->isLoaded()) {
-            double delta_deg = 0.0; // Would come from controller state if guided
-            FinDeflectionData fin_data = cfg.fin_deflection_coeffs->lookup(mach, delta_deg);
-            M_aero_b.y += q_dyn * S_ref * L_ref * fin_data.Cmd;
-            // Also adds to normal force, but we focus on moments for now
+        // v8 P3.2 — delta-dependent control-surface aero. The commanded fin
+        // deflections map (via the allocator geometry) to an equivalent
+        // deflection per axis; that indexes the delta-swept aero deck so the
+        // realised control moment is sourced from aero data rather than the
+        // allocator's own linear estimate. Gated by delta_aero_from_table; when
+        // off the legacy zero-deflection lookup is preserved exactly.
+        const bool use_delta_aero =
+            cfg.delta_aero_from_table &&
+            cfg.fin_deflection_coeffs && cfg.fin_deflection_coeffs->isLoaded();
+
+        Vec3 def_eq{0.0, 0.0, 0.0}; // {roll, pitch, yaw} equivalent deflection (rad)
+        if (use_delta_aero && cfg.allocator) {
+            def_eq = cfg.allocator->equivalentDeflections(cmds);
         }
 
-        // Apply Roll Aero Coupling
+        // Apply Fin Deflection. Legacy path (use_delta_aero == false) indexes
+        // the deck at 0 deg, as before; the delta path uses the commanded
+        // pitch/yaw equivalent deflection and applies the resulting moments
+        // with the correct sign (the deck is tabulated for |delta|).
+        if (cfg.fin_deflection_coeffs && cfg.fin_deflection_coeffs->isLoaded()) {
+            const double dp_deg = use_delta_aero ? def_eq.y * gnc::RAD2DEG : 0.0; // pitch
+            const double dy_deg = use_delta_aero ? def_eq.z * gnc::RAD2DEG : 0.0; // yaw
+            const double sp = dp_deg >= 0.0 ? 1.0 : -1.0;
+            const double sy = dy_deg >= 0.0 ? 1.0 : -1.0;
+            FinDeflectionData fp = cfg.fin_deflection_coeffs->lookup(mach, std::abs(dp_deg));
+            FinDeflectionData fy = cfg.fin_deflection_coeffs->lookup(mach, std::abs(dy_deg));
+            M_aero_b.y += sp * q_dyn * S_ref * L_ref * fp.Cmd; // pitch control moment
+            if (use_delta_aero) {
+                // Yaw shares the fin moment derivative by cruciform symmetry.
+                M_aero_b.x += sy * q_dyn * S_ref * L_ref * fy.Cmd;
+            }
+            // Normal-force coupling (Cnd) is left to a follow-up; for the
+            // committed decks it is ~1-2 orders of magnitude below the moment
+            // term and its body-axis sign needs validation against a golden run.
+        }
+
+        // Apply Roll Aero Coupling at the commanded roll-equivalent deflection.
+        bool roll_from_table = false;
         if (cfg.roll_aero_coeffs && cfg.roll_aero_coeffs->isLoaded()) {
-            double def_roll = 0.0; 
-            RollAeroData roll_data = cfg.roll_aero_coeffs->lookup(mach, alpha_deg, def_roll);
+            const double def_roll_deg = use_delta_aero ? def_eq.x * gnc::RAD2DEG : 0.0;
+            RollAeroData roll_data = cfg.roll_aero_coeffs->lookup(mach, alpha_deg, def_roll_deg);
             M_aero_b.z += q_dyn * S_ref * L_ref * roll_data.Cll;
+            roll_from_table = use_delta_aero;
         }
 
         Vec3 r_cp_cg = sub(cfg.full.r_cp_m, cg);
@@ -305,11 +335,22 @@ Derivative compute_derivative(const State& s, const SimConfig& cfg, const gnc::c
         M_aero_b = add(M_aero_b, M_cp);
 
         M_b = add(M_b, M_aero_b);
-    }
 
-    // Apply Controller Moments
-    M_b = add(M_b, cmds.allocated_aero_moment);
-    M_b = add(M_b, cmds.allocated_thrust_moment);
+        // Allocator-sourced control moment for the axes NOT taken from the aero
+        // deck. With delta-aero off this is the full allocated moment (legacy);
+        // with it on, pitch/yaw (and roll, if a roll deck is loaded) are already
+        // injected from the deck above, so they are zeroed here to avoid double
+        // counting.
+        Vec3 mc = cmds.allocated_aero_moment;
+        if (use_delta_aero) { mc.x = 0.0; mc.y = 0.0; }
+        if (roll_from_table) { mc.z = 0.0; }
+        M_b = add(M_b, mc);
+        M_b = add(M_b, cmds.allocated_thrust_moment);
+    }
+    else {
+        // No relative airflow: no aero control authority, only thrust-vector.
+        M_b = add(M_b, cmds.allocated_thrust_moment);
+    }
 
     // Transform forces to NED
     Vec3 F_aero_prop_n = rotate(s.q, F_b);

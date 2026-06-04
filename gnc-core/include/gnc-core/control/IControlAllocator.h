@@ -37,6 +37,17 @@ public:
     virtual ~IControlAllocator() = default;
 
     virtual ActuatorCommands allocate(const ControlEffort& effort, const AllocatorState& state) = 0;
+
+    // Per-axis equivalent control-surface deflection (rad) that the given
+    // command vector represents, returned as {roll, pitch, yaw}. The plant
+    // uses this to index a delta-swept aero deck so the realised control
+    // moment is sourced from aerodynamic data rather than the allocator's own
+    // linear effectiveness estimate. Default {0,0,0} for allocators without
+    // aerodynamic surfaces (e.g. pure TVC).
+    virtual Vec3 equivalentDeflections(const ActuatorCommands& cmds) const {
+        (void)cmds;
+        return Vec3{0.0, 0.0, 0.0};
+    }
 };
 
 } // namespace gnc::control
