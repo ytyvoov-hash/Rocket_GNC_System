@@ -9,21 +9,16 @@ released_at: "TBD"
 
 committed_rockets:
   - id: BA
-  type: sounding
-  notes: "Reference template; used for unit tests and golden-log validation."
-  required_artefacts:
-  golden: rockets/BA/golden/                  # >= 8 envelope cells (HDF5)
-  tolerances: rockets/BA/tolerances.yaml
-  scenarios: rockets/BA/scenarios.yaml
-  onboarding_report: rockets/BA/onboarding_report.md
+    type: sounding
+    notes: "Reference template; used for unit tests and golden-log validation."
+    required_artefacts:
+      golden: rockets/BA/golden/                  # >= 8 envelope cells (HDF5)
+      tolerances: rockets/BA/tolerances.yaml
+      scenarios: rockets/BA/scenarios.yaml
+      onboarding_report: rockets/BA/onboarding_report.md
 
-  # Path A and Path B signed-firmware hashes are filled by the firmware-signing
-  # pipeline at release time and verified at boot (§1.5.1, §10).
-  - dfg
-  - ES_273
-
-_copy
-_copy
+# Path A and Path B signed-firmware hashes are filled by the firmware-signing
+# pipeline at release time and verified at boot (§1.5.1, §10).
 path_a:
   firmware_sha256: null
   signing_key_id: null

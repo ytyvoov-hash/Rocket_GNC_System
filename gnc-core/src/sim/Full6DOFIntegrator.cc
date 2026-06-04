@@ -1,5 +1,6 @@
 #include "gnc-core/sim/Full6DOFIntegrator.h"
 #include "gnc-core/control/ControllerFactory.h"
+#include <algorithm>
 #include <cmath>
 
 namespace gnc::sim {
