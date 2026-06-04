@@ -29,8 +29,8 @@ private:
     bool   nav_initialized_{false};
     double gps_accum_s_{0.0};
 
-    // Actuator Dynamics State
-    std::array<double, 4> fin_angles_rad_{0.0, 0.0, 0.0, 0.0};
+    // Actuator Dynamics State (sized for the largest committed fin count).
+    std::array<double, gnc::control::kMaxFins> fin_angles_rad_{};
     double tvc_pitch_angle_rad_{0.0};
     double tvc_yaw_angle_rad_{0.0};
 };
