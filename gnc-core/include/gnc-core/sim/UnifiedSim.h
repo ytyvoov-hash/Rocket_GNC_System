@@ -26,6 +26,16 @@ enum class Mode {
     Full
 };
 
+// v8 INV-3: SIL must close the loop on *estimated* state produced by the
+// navigation filter from noisy IMU + GPS. Feeding the controller ground-truth
+// (or undelayed raw measurements as the legacy loop did) makes every SIL run
+// non-representative. Estimated is the only mode permitted to produce a SIL
+// "pass"; Truth exists for debugging/bring-up only.
+enum class FeedbackSource {
+    Estimated,  // controller consumes ErrorStateKF output (default)
+    Truth       // DEBUG ONLY — controller consumes ground-truth state
+};
+
 // ---------------------------------------------------------------------------
 // Configuration
 // ---------------------------------------------------------------------------
@@ -59,6 +69,10 @@ struct SimConfig {
     // Integrator cadence
     double dt_s{0.01};            // 100 Hz default
     double t_end_s{300.0};        // hard cutoff
+
+    // v8 INV-3: which state the controller is fed. Defaults to the estimator.
+    FeedbackSource feedback_source{FeedbackSource::Estimated};
+    double gps_update_hz{10.0};   // GPS measurement cadence into the estimator
 
     bool use_ecef{false};         // Enable ECEF coordinate propagation and gravity/Coriolis models
 

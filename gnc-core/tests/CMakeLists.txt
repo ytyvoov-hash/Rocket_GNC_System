@@ -20,6 +20,7 @@ FetchContent_MakeAvailable(Catch2)
 add_executable(gnc_core_smoke_test
     smoke_test.cc
     sim_test.cc
+    nav_eskf_test.cc
 )
 
 target_link_libraries(gnc_core_smoke_test
