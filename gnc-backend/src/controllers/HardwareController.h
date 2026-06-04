@@ -6,16 +6,18 @@
 
 #include <drogon/HttpController.h>
 
+#include "auth/KeycloakAuth.h"
+
 namespace gnc::backend {
 
 class HardwareController : public drogon::HttpController<HardwareController> {
 public:
     METHOD_LIST_BEGIN
-        ADD_METHOD_TO(HardwareController::scan,            "/api/v1/hardware/scan",        drogon::Get);
-        ADD_METHOD_TO(HardwareController::getAssignments,  "/api/v1/hardware/assignments", drogon::Get);
-        ADD_METHOD_TO(HardwareController::putAssignments,  "/api/v1/hardware/assignments", drogon::Put);
-        ADD_METHOD_TO(HardwareController::getMapping,      "/api/v1/hardware-mapping",     drogon::Get);
-        ADD_METHOD_TO(HardwareController::patchMapping,    "/api/v1/hardware-mapping",     drogon::Patch);
+        ADD_METHOD_TO(HardwareController::scan,            "/api/v1/hardware/scan",        drogon::Get,   "gnc::backend::ViewerOnly");
+        ADD_METHOD_TO(HardwareController::getAssignments,  "/api/v1/hardware/assignments", drogon::Get,   "gnc::backend::ViewerOnly");
+        ADD_METHOD_TO(HardwareController::putAssignments,  "/api/v1/hardware/assignments", drogon::Put,   "gnc::backend::OperatorOnly");
+        ADD_METHOD_TO(HardwareController::getMapping,      "/api/v1/hardware-mapping",     drogon::Get,   "gnc::backend::ViewerOnly");
+        ADD_METHOD_TO(HardwareController::patchMapping,    "/api/v1/hardware-mapping",     drogon::Patch, "gnc::backend::EngineerOnly");
     METHOD_LIST_END
 
     using Cb = std::function<void(const drogon::HttpResponsePtr&)>;

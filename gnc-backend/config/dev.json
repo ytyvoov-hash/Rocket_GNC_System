@@ -40,6 +40,10 @@
             "issuer": "http://localhost:8081/realms/gnc",
             "audience": "gnc-frontend",
             "jwks_uri": "http://localhost:8081/realms/gnc/protocol/openid-connect/certs",
+            "jwks_file": "./config/keycloak_jwks.json",
+            "require_issuer": true,
+            "require_audience": false,
+            "leeway_s": 60,
             "cache_ttl_s": 600
         },
         "minio": {

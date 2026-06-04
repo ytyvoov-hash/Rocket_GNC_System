@@ -83,14 +83,59 @@ gnc-backend/
 ## API authentication
 
 All REST endpoints (except `/api/v1/health`) require a valid Keycloak JWT in
-the `Authorization: Bearer <token>` header. Role enforcement is per-method:
+the `Authorization: Bearer <token>` header. The token is verified server-side
+(`src/auth/JwtVerifier`): RS256 signature against the realm JWKS (matched by
+`kid`, public key from the JWK `x5c`), plus `exp`/`nbf` (with `leeway_s`),
+and `iss`/`aud` when `require_issuer` / `require_audience` are set. The role is
+the highest entry of `realm_access.roles[]`. There is **no** `X-Dev-Role`
+trust path — roles come only from a verified token.
 
-| Verb | Minimum role |
-|------|--------------|
-| `GET` | `viewer` |
-| `PATCH`, `POST`, `PUT` | `engineer` |
-| `POST /missions/{id}/lock`, ARM/LAUNCH/ABORT | `operator` |
-| `DELETE` | `admin` |
+Enforcement is per-route, attached as Drogon filters
+(`ViewerOnly`/`EngineerOnly`/`OperatorOnly`/`AdminOnly`) in each controller's
+`METHOD_LIST`. A request below the required role gets `401` (no/invalid token)
+or `403` (authenticated but under-privileged).
+
+| Route(s) | Minimum role |
+|----------|--------------|
+| `GET /api/v1/health` | (open) |
+| Read endpoints (`GET` templates/missions/hardware/libraries/sim-log) | `viewer` |
+| `POST`/`PUT`/`PATCH`/`POST …/validate`/`…/duplicate`, `POST /simulation/*` | `engineer` |
+| `PUT /hardware/assignments`, `POST /missions/{id}/lock`, `GET /audit` | `operator` |
+| `DELETE /templates/{id}` | `admin` |
+
+### Verifier configuration (`custom_config.keycloak`)
+
+```jsonc
+"keycloak": {
+  "issuer":           "http://localhost:8081/realms/gnc",
+  "audience":         "gnc-frontend",
+  "jwks_file":        "./config/keycloak_jwks.json",  // or inline "jwks": "<JSON>"
+  "require_issuer":   true,
+  "require_audience": false,
+  "leeway_s":         60
+}
+```
+
+Provide the realm signing keys via `jwks_file` (or inline `jwks`). Refresh the
+file from the realm's `jwks_uri` when keys rotate
+(`curl -s "$jwks_uri" -o config/keycloak_jwks.json`); see
+`config/keycloak_jwks.example.json`. **Live JWKS-URI fetch + automatic key
+rotation inside the backend is a tracked follow-up** — today the document is
+read from config at startup. If no JWKS is configured the verifier is
+fail-closed: every guarded route returns `401`.
+
+### Dev bypass & release hardening (v8 INV-6)
+
+For local development, building with `-DGNC_ALLOW_AUTH_BYPASS=ON` (the default)
+and running with `GNC_AUTH_DISABLED=1` makes every request resolve to `admin`
+(logged loudly). Release / flight builds **must** configure
+`-DGNC_ALLOW_AUTH_BYPASS=OFF`, which compiles the bypass out of the binary
+entirely so the env var has no effect.
+
+> ARM / LAUNCH / ABORT are not yet server endpoints — the launch interlock is
+> still enforced only in the frontend. A server-authenticated
+> ARM/LAUNCH/ABORT path (operator role + hardware-key check) is the next slice
+> of this work.
 
 ## Status (2026-05)
 

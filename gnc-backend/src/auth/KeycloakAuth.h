@@ -1,41 +1,69 @@
 // gnc-backend/src/auth/KeycloakAuth.h
-// JWT (RS256) verification against Keycloak's JWKS, with role mapping to
-// the v5.4 §1.7 RBAC matrix (viewer / engineer / operator / admin).
-// Implemented as a Drogon HttpFilter so every guarded route runs through it.
+// RBAC min-role filters for Drogon. Roles come from a signature-verified
+// Keycloak JWT (see JwtVerifier); there is no more `X-Dev-Role` trust path.
+//
+// Each named filter derives from drogon::HttpFilter<T> so Drogon can
+// instantiate it by class name from the controllers' ADD_METHOD_TO lists,
+// e.g. ADD_METHOD_TO(C::create, "/api/v1/...", Post, "gnc::backend::EngineerOnly").
 
 #pragma once
 
-#include <drogon/HttpFilter.h>
+#include "Role.h"
 
-#include <string>
+#include <drogon/HttpFilter.h>
 
 namespace gnc::backend {
 
-enum class Role : std::uint8_t {
-    Anonymous = 0,
-    Viewer    = 1,
-    Engineer  = 2,
-    Operator  = 3,
-    Admin     = 4,
-};
+// Verified role for this request: the role from a valid Bearer JWT, else
+// Anonymous. Only when the build enables the dev bypass (GNC_ALLOW_AUTH_BYPASS)
+// AND env GNC_AUTH_DISABLED=1 is set does this return Admin without a token.
+Role current_role(const drogon::HttpRequestPtr& req);
 
-// Minimum-role filter. Subclasses set the threshold at construction.
-class MinRoleFilter : public drogon::HttpFilter<MinRoleFilter, /*AutoCreation=*/false> {
+// Shared enforcement: continue the chain iff current_role(req) >= min_role,
+// otherwise short-circuit with 401 (no/invalid token) or 403 (insufficient).
+void enforce_min_role(Role min_role,
+                      const drogon::HttpRequestPtr& req,
+                      drogon::FilterCallback&& failCb,
+                      drogon::FilterChainCallback&& nextCb);
+
+class ViewerOnly : public drogon::HttpFilter<ViewerOnly> {
 public:
-    explicit MinRoleFilter(Role min_role) : min_role_(min_role) {}
-
     void doFilter(const drogon::HttpRequestPtr& req,
                   drogon::FilterCallback&& failCb,
-                  drogon::FilterChainCallback&& nextCb) override;
-
-private:
-    Role min_role_;
+                  drogon::FilterChainCallback&& nextCb) override
+    {
+        enforce_min_role(Role::Viewer, req, std::move(failCb), std::move(nextCb));
+    }
 };
 
-// Convenience factory. Use one of these per registered controller method.
-class ViewerOnly   : public MinRoleFilter { public: ViewerOnly()   : MinRoleFilter(Role::Viewer)   {} };
-class EngineerOnly : public MinRoleFilter { public: EngineerOnly() : MinRoleFilter(Role::Engineer) {} };
-class OperatorOnly : public MinRoleFilter { public: OperatorOnly() : MinRoleFilter(Role::Operator) {} };
-class AdminOnly    : public MinRoleFilter { public: AdminOnly()    : MinRoleFilter(Role::Admin)    {} };
+class EngineerOnly : public drogon::HttpFilter<EngineerOnly> {
+public:
+    void doFilter(const drogon::HttpRequestPtr& req,
+                  drogon::FilterCallback&& failCb,
+                  drogon::FilterChainCallback&& nextCb) override
+    {
+        enforce_min_role(Role::Engineer, req, std::move(failCb), std::move(nextCb));
+    }
+};
+
+class OperatorOnly : public drogon::HttpFilter<OperatorOnly> {
+public:
+    void doFilter(const drogon::HttpRequestPtr& req,
+                  drogon::FilterCallback&& failCb,
+                  drogon::FilterChainCallback&& nextCb) override
+    {
+        enforce_min_role(Role::Operator, req, std::move(failCb), std::move(nextCb));
+    }
+};
+
+class AdminOnly : public drogon::HttpFilter<AdminOnly> {
+public:
+    void doFilter(const drogon::HttpRequestPtr& req,
+                  drogon::FilterCallback&& failCb,
+                  drogon::FilterChainCallback&& nextCb) override
+    {
+        enforce_min_role(Role::Admin, req, std::move(failCb), std::move(nextCb));
+    }
+};
 
 }  // namespace gnc::backend
