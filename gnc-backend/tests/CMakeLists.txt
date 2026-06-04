@@ -1,10 +1,22 @@
 cmake_minimum_required(VERSION 3.20)
 
 find_package(GTest CONFIG REQUIRED)
+find_package(OpenSSL REQUIRED)
+find_package(jwt-cpp CONFIG REQUIRED)
 
 add_executable(gnc_backend_unit_tests
     smoke_test.cc
     validator_test.cc
+    auth_jwt_test.cc
+    launch_authority_test.cc
+    # JwtVerifier and LaunchAuthority live outside gnc_backend_core (which is
+    # parser/validator only), so compile them directly into the test binary.
+    ${CMAKE_CURRENT_SOURCE_DIR}/../src/auth/JwtVerifier.cc
+    ${CMAKE_CURRENT_SOURCE_DIR}/../src/launch/LaunchAuthority.cc
+)
+
+target_include_directories(gnc_backend_unit_tests PRIVATE
+    ${CMAKE_CURRENT_SOURCE_DIR}/../src
 )
 
 target_link_libraries(gnc_backend_unit_tests
@@ -12,6 +24,9 @@ target_link_libraries(gnc_backend_unit_tests
         gnc_backend_core
         GTest::gtest
         GTest::gtest_main
+        OpenSSL::SSL
+        OpenSSL::Crypto
+        jwt-cpp::jwt-cpp
 )
 
 # Tests need to know where the rockets/ tree lives so they can load BA.

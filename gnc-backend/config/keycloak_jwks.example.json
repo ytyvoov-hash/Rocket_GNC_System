@@ -1,0 +1,31 @@
+{
+  "_comment": [
+    "Example Keycloak JWKS for local RBAC testing. The backend's JwtVerifier",
+    "verifies RS256 access tokens against the key(s) here (matched by `kid`,",
+    "public key taken from x5c[0]).",
+    "",
+    "To use a real Keycloak realm, fetch the live document and save it as",
+    "keycloak_jwks.json next to dev.json:",
+    "",
+    "  curl -s \"$jwks_uri\" -o gnc-backend/config/keycloak_jwks.json",
+    "",
+    "where $jwks_uri is custom_config.keycloak.jwks_uri, e.g.",
+    "  http://localhost:8081/realms/gnc/protocol/openid-connect/certs",
+    "",
+    "NOTE: live JWKS-URI fetch + key rotation inside the backend is a planned",
+    "follow-up (v8 P0.2 backlog). Until then, refresh this file whenever the",
+    "realm's signing keys rotate. The keys[] entry below is a non-functional",
+    "placeholder (truncated x5c) and must be replaced with a real document."
+  ],
+  "keys": [
+    {
+      "kid": "REPLACE_WITH_REAL_KID",
+      "kty": "RSA",
+      "alg": "RS256",
+      "use": "sig",
+      "x5c": [
+        "MIIC...REPLACE_WITH_REAL_BASE64_DER_CERT...=="
+      ]
+    }
+  ]
+}

@@ -7,16 +7,18 @@
 
 #include <drogon/HttpController.h>
 
+#include "auth/KeycloakAuth.h"
+
 namespace gnc::backend {
 
 class SimulationController : public drogon::HttpController<SimulationController> {
 public:
     METHOD_LIST_BEGIN
-        ADD_METHOD_TO(SimulationController::start, "/api/v1/simulation/start",        drogon::Post);
-        ADD_METHOD_TO(SimulationController::stop,  "/api/v1/simulation/{1}/stop",     drogon::Post);
-        ADD_METHOD_TO(SimulationController::load_rocket, "/api/v1/simulation/load-rocket", drogon::Post);
-        ADD_METHOD_TO(SimulationController::update_params, "/api/v1/simulation/{1}/update-params", drogon::Post);
-        ADD_METHOD_TO(SimulationController::download_log,  "/api/v1/simulation/{1}/log/download", drogon::Get);
+        ADD_METHOD_TO(SimulationController::start, "/api/v1/simulation/start",        drogon::Post, "gnc::backend::EngineerOnly");
+        ADD_METHOD_TO(SimulationController::stop,  "/api/v1/simulation/{1}/stop",     drogon::Post, "gnc::backend::EngineerOnly");
+        ADD_METHOD_TO(SimulationController::load_rocket, "/api/v1/simulation/load-rocket", drogon::Post, "gnc::backend::EngineerOnly");
+        ADD_METHOD_TO(SimulationController::update_params, "/api/v1/simulation/{1}/update-params", drogon::Post, "gnc::backend::EngineerOnly");
+        ADD_METHOD_TO(SimulationController::download_log,  "/api/v1/simulation/{1}/log/download", drogon::Get, "gnc::backend::ViewerOnly");
     METHOD_LIST_END
 
     using Cb = std::function<void(const drogon::HttpResponsePtr&)>;

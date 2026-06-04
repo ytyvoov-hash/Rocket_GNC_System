@@ -1,6 +1,7 @@
 // gnc-backend/src/audit/AuditWriter.cc
 
 #include "AuditWriter.h"
+#include "../auth/KeycloakAuth.h"
 
 #include <nlohmann/json.hpp>
 
@@ -57,7 +58,9 @@ void infer_target(const std::string& path,
     static const std::regex re_lib   (R"(/api/v1/libraries/([^/]+))");
     static const std::regex re_simS  (R"(/api/v1/simulation/start)");
     static const std::regex re_simS2 (R"(/api/v1/simulation/([^/]+)/stop)");
+    static const std::regex re_launch(R"(/api/v1/launch/([^/]+))");
     std::smatch m;
+    if (std::regex_search(path, m, re_launch)) { kind = "launch"; id = m[1]; return; }
     if (std::regex_search(path, m, re_simS2)) { kind = "run";      id = m[1]; return; }
     if (std::regex_search(path, m, re_simS )) { kind = "run";      id = "";   return; }
     if (std::regex_search(path, m, re_tpl  )) { kind = "template"; id = m[1]; return; }
@@ -138,10 +141,11 @@ void on_response(const drogon::HttpRequestPtr& req,
     e.method      = method;
     e.path        = req->getPath();
     e.status      = static_cast<int>(resp->getStatusCode());
-    e.actor       = req->getHeader("X-Forwarded-User");
-    if (e.actor.empty()) e.actor = req->getHeader("X-User"); // dev fallback
-    if (e.actor.empty()) e.actor = "anonymous";
-    e.actor_role  = req->getHeader("X-User-Role");
+    // Identity comes from the signature-verified JWT (v8 INV-2), never from a
+    // client-supplied header — otherwise the audit trail itself is spoofable.
+    const Identity id = current_identity(req);
+    e.actor       = id.subject.empty() ? std::string("anonymous") : id.subject;
+    e.actor_role  = to_string(id.role);
     e.operator_id = req->getHeader("X-Operator-ID");
     e.reason      = req->getHeader("X-Reason");
     e.request_id  = req->getHeader("X-Request-Id");

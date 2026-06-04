@@ -5,12 +5,15 @@
 
 #include <drogon/HttpController.h>
 
+#include "auth/KeycloakAuth.h"
+
 namespace gnc::backend {
 
 class AuditController : public drogon::HttpController<AuditController> {
 public:
     METHOD_LIST_BEGIN
-        ADD_METHOD_TO(AuditController::list, "/api/v1/audit", drogon::Get);
+        // Audit trail is sensitive (who did what); operator+ only.
+        ADD_METHOD_TO(AuditController::list, "/api/v1/audit", drogon::Get, "gnc::backend::OperatorOnly");
     METHOD_LIST_END
 
     using Cb = std::function<void(const drogon::HttpResponsePtr&)>;
