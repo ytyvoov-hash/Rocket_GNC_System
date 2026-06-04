@@ -569,7 +569,8 @@ SimFrame Full6DOFIntegrator::step()
 
     double max_fin_cmd = 1e-6;
     double max_fin_act = 1e-6;
-    for(int i=0; i<4; ++i) {
+    const int n_active_fins = std::clamp(act_cmds.n_fins, 0, gnc::control::kMaxFins);
+    for(int i=0; i<n_active_fins; ++i) {
         double c = std::abs(act_cmds.fins_rad[i]);
         max_fin_cmd = std::max(max_fin_cmd, c);
         act_cmds.fins_rad[i] = step_actuator(act_cmds.fins_rad[i], fin_angles_rad_[i]);
@@ -779,9 +780,11 @@ SimFrame Full6DOFIntegrator::step()
     frame_.log_row.autopilot_mode = 0.0;
     frame_.log_row.flight_phase = static_cast<double>(frame_.phase);
 
-    // Actuators
-    frame_.actuator_positions = std::vector<double>(act_cmds.fins_rad.begin(), act_cmds.fins_rad.end());
-    if (act_cmds.fins_rad.size() >= 4) {
+    // Actuators (log only the active surfaces)
+    frame_.actuator_positions = std::vector<double>(
+        act_cmds.fins_rad.begin(),
+        act_cmds.fins_rad.begin() + std::clamp(act_cmds.n_fins, 0, gnc::control::kMaxFins));
+    if (act_cmds.n_fins >= 4) {
         frame_.log_row.fin1_deflection_rad = act_cmds.fins_rad[0];
         frame_.log_row.fin2_deflection_rad = act_cmds.fins_rad[1];
         frame_.log_row.fin3_deflection_rad = act_cmds.fins_rad[2];

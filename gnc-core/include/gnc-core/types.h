@@ -77,6 +77,16 @@ struct TuningParams {
     std::vector<double> Q;
     std::vector<double> R;
     std::vector<double> K;
+
+    // Fin allocation geometry (template-driven). Defaults to the canonical
+    // 4-fin "+"; a vehicle template supplies its own count/layout/effectiveness
+    // so the core allocator needs no per-vehicle edits.
+    int n_fins{4};
+    std::string fin_layout{"cruciform"};  // "cruciform" | "ring" | "canard"
+    double Cl_delta{0.01};                 // roll effectiveness  (per rad)
+    double Cm_delta{0.05};                 // pitch effectiveness (per rad)
+    double Cn_delta{0.05};                 // yaw effectiveness   (per rad)
+    double fin_delta_max_rad{0.35};        // per-fin position limit
 };
 
 // ---------------------------------------------------------------------------
