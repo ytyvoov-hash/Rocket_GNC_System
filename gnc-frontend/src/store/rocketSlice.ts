@@ -90,6 +90,10 @@ export interface ValidationClause {
   clause: string;
   verdict: ValidationVerdict;
   message?: string;
+  // Required clauses must be implemented AND pass for the template to pass.
+  // An un-implemented required clause (verdict 'N/A') blocks the overall
+  // verdict (fail-closed). Optional clauses may be skipped.
+  required?: boolean;
 }
 
 export interface ValidationReport {

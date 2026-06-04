@@ -40,9 +40,27 @@ ClauseResult run_C23(const nlohmann::json& doc);  // Launch-rail consistency
 ClauseResult run_C24(const nlohmann::json& doc);  // abort_policy present
 ClauseResult run_C25(const nlohmann::json& doc);  // CAN utilisation budget
 
-// Run every clause in order and return the assembled report. The caller
-// fills in `run_at` (we don't take a clock dependency in the validator
-// to keep it pure / unit-testable).
+// Canonical clause-spec table — the single source of truth for the contract.
+// `id` and `title` are frozen here so the code, the report, and any test can
+// agree on the C-map (no doc/code drift), and `required` drives the
+// fail-closed aggregation in Verdict.h (INV-1). The order of `clause_specs()`
+// is the canonical C1..C25 order that `run_all` emits.
+struct ClauseSpec {
+    std::string id;        // "C1" .. "C25"
+    std::string title;     // human-readable subject (frozen)
+    bool        required;  // false only for genuinely conditional clauses
+};
+
+const std::vector<ClauseSpec>& clause_specs();
+
+// Whether clause `id` is required (defaults to true — fail-closed — for any
+// id not found in the table).
+bool clause_required(const std::string& id);
+
+// Run every clause in order and return the assembled report (with each
+// clause's `required` flag populated from `clause_specs()`). The caller fills
+// in `run_at` (we don't take a clock dependency in the validator to keep it
+// pure / unit-testable).
 Report run_all(const nlohmann::json& doc);
 
 }  // namespace gnc::backend::validator
