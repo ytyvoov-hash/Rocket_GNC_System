@@ -23,9 +23,22 @@ path_a:
   firmware_sha256: null
   signing_key_id: null
 
+# Path B (STM32H7) flight target — v8 P5.1. firmware_sha256 / signing_key_id are
+# populated by gnc-stm32/scripts/sign_firmware.py over the linked image and
+# verified at boot by gnc::stm32::FirmwareSignature (INV-6). null = unsigned dev
+# image, which a flight build (GNC_FLIGHT_BUILD) refuses to run.
 path_b:
   firmware_sha256: null
   signing_key_id: null
+  project: gnc-stm32
+  target: stm32h7
+  binary_format: elf
+  toolchain: arm-none-eabi
+  icd: gnc-stm32/docs/firmware_backend_icd.md
+  flight_build_requires:
+    any_stubbed: false      # every HAL interface must resolve to a native driver
+    auth_enabled: true      # GNC_ALLOW_AUTH_BYPASS must be OFF
+    firmware_signed: true   # image SHA-256 must match path_b.firmware_sha256
 
 # Tier 3 SIL envelope grid generator: each rocket contributes
 #   rockets/<id>/envelope.yaml -> envelope_grid(envelope) -> >= 8 cells
