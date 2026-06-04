@@ -422,6 +422,8 @@ void Full6DOFIntegrator::reset()
     frame_.q_b_n = cfg_.q0_b_n;
     frame_.omega_b_b = {0, 0, 0};
     frame_.t_s = 0.0;
+    nav_initialized_ = false;
+    gps_accum_s_ = 0.0;
 }
 
 void Full6DOFIntegrator::updateTuningParams(const TuningParams& params) {
@@ -456,16 +458,63 @@ SimFrame Full6DOFIntegrator::step()
         // Add sensor noise
         SensorMeasurements meas = sensor_model_.compute_measurements(s.r, s.v, s.q, s.w, a_sf_b, cfg_.dt_s);
 
-        // For now, the controller uses the direct measured states (in a real system, an Estimator would sit here)
-        c_state.position_n = meas.gps_pos_ned;
-        c_state.velocity_n = meas.gps_vel_ned;
-        c_state.angular_velocity_rad_s = meas.gyro_measured;
+        // ----- v8 INV-3: estimator-in-the-loop ----------------------------
+        // The controller is fed from the ErrorStateKF output (noisy, estimated)
+        // unless feedback_source is explicitly Truth (debug-only).
+        if (cfg_.feedback_source == FeedbackSource::Estimated) {
+            if (!nav_initialized_) {
+                estimation::EskfParams ep;
+                ep.gravity_n = earth_model_.compute_gravity_ned(cfg_.r0_n);
+                // Use configured sensor noise; fall back to defaults if unset
+                // (0 std would make the measurement covariance singular).
+                if (cfg_.sensor_params.gps_pos_std > 0.0)
+                    ep.gps_pos_std = cfg_.sensor_params.gps_pos_std;
+                if (cfg_.sensor_params.gps_vel_std > 0.0)
+                    ep.gps_vel_std = cfg_.sensor_params.gps_vel_std;
+                if (cfg_.sensor_params.accel_noise_density > 0.0)
+                    ep.sigma_a = cfg_.sensor_params.accel_noise_density;
+                if (cfg_.sensor_params.gyro_noise_density > 0.0)
+                    ep.sigma_g = cfg_.sensor_params.gyro_noise_density;
+                nav_.initialize(cfg_.r0_n, cfg_.v0_n, cfg_.q0_b_n, ep);
+                nav_initialized_ = true;
+                gps_accum_s_ = 0.0;
+            }
+            nav_.predict(meas.accel_measured, meas.gyro_measured, cfg_.dt_s);
+            gps_accum_s_ += cfg_.dt_s;
+            if (gps_accum_s_ >= (1.0 / cfg_.gps_update_hz)) {
+                nav_.update_gps(meas.gps_pos_ned, meas.gps_vel_ned);
+                gps_accum_s_ = 0.0;
+            }
+            const auto nav_st = nav_.state();
+            c_state.position_n = nav_st.pos_n;
+            c_state.velocity_n = nav_st.vel_n;
+            // Euler from estimated quaternion (same ZYX convention used below).
+            const Quat& qe = nav_st.q_b_n;
+            double sinp = 2.0 * (qe.w * qe.y - qe.z * qe.x);
+            if (std::abs(sinp) >= 1.0)
+                c_state.euler_angles_rad.y = std::copysign(gnc::PI * 0.5, sinp);
+            else
+                c_state.euler_angles_rad.y = std::asin(sinp);
+            double sqy = qe.y * qe.y, sqz = qe.z * qe.z, sqx = qe.x * qe.x;
+            c_state.euler_angles_rad.z = std::atan2(2.0 * (qe.w * qe.z + qe.x * qe.y),
+                                                    1.0 - 2.0 * (sqy + sqz));
+            c_state.euler_angles_rad.x = std::atan2(2.0 * (qe.w * qe.x + qe.y * qe.z),
+                                                    1.0 - 2.0 * (sqx + sqy));
+            // Rate from gyro corrected by estimated bias.
+            c_state.angular_velocity_rad_s = {
+                meas.gyro_measured.x - nav_st.bias_g_b.x,
+                meas.gyro_measured.y - nav_st.bias_g_b.y,
+                meas.gyro_measured.z - nav_st.bias_g_b.z};
+        } else {
+            // FeedbackSource::Truth — DEBUG ONLY (v8 INV-3: produces non-representative results)
+            c_state.position_n = meas.gps_pos_ned;
+            c_state.velocity_n = meas.gps_vel_ned;
+            c_state.angular_velocity_rad_s = meas.gyro_measured;
+            c_state.euler_angles_rad.x = frame_.roll_deg * gnc::DEG2RAD;
+            c_state.euler_angles_rad.y = frame_.pitch_deg * gnc::DEG2RAD;
+            c_state.euler_angles_rad.z = frame_.yaw_deg * gnc::DEG2RAD;
+        }
         c_state.mass_kg = s.m;
-        
-        // PI, DEG2RAD, RAD2DEG are in gnc::types.h
-        c_state.euler_angles_rad.x = frame_.roll_deg * gnc::DEG2RAD;
-        c_state.euler_angles_rad.y = frame_.pitch_deg * gnc::DEG2RAD;
-        c_state.euler_angles_rad.z = frame_.yaw_deg * gnc::DEG2RAD;
 
         // Approximations for dynamic pressure and thrust for the allocator
         double alt = -s.r.z;

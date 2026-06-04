@@ -3,6 +3,7 @@
 #pragma once
 
 #include "UnifiedSim.h"
+#include "gnc-core/estimation/ErrorStateKF.h"
 
 namespace gnc::sim {
 
@@ -21,7 +22,13 @@ private:
     EarthModel earth_model_;
     SensorModel sensor_model_;
     gnc::control::ActuatorCommands last_cmds_;
-    
+
+    // v8 INV-3: navigation estimator that closes the SIL loop on estimated
+    // (noisy) state rather than ground truth.
+    gnc::estimation::ErrorStateKF nav_;
+    bool   nav_initialized_{false};
+    double gps_accum_s_{0.0};
+
     // Actuator Dynamics State
     std::array<double, 4> fin_angles_rad_{0.0, 0.0, 0.0, 0.0};
     double tvc_pitch_angle_rad_{0.0};

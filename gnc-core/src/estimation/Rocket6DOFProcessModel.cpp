@@ -60,20 +60,50 @@ Eigen::VectorXd Rocket6DOFProcessModel::frameToVector(const sim::SimFrame& frame
     return x;
 }
 
+namespace {
+
+// Continuous-time derivative of the 13-state kinematic model.
+//   r' = v                              (NED)
+//   v' = a_n                            (control = net NED acceleration input)
+//   q' = ½ q ⊗ [0, ω_b]                 (body rate ω from state)
+//   ω' = 0                              (no torque model in the predictor)
+Eigen::VectorXd state_derivative(const Eigen::VectorXd& x, const Eigen::VectorXd& u) {
+    Eigen::VectorXd d = Eigen::VectorXd::Zero(13);
+
+    // Position derivative = velocity.
+    d.segment<3>(0) = x.segment<3>(3);
+    // Velocity derivative = commanded/known NED acceleration (3-dim input).
+    if (u.size() >= 3) d.segment<3>(3) = u.segment<3>(0);
+
+    // Quaternion derivative from body angular rate (Hamiltonian, body→NED).
+    const double qw = x(6), qx = x(7), qy = x(8), qz = x(9);
+    const double wx = x(10), wy = x(11), wz = x(12);
+    d(6) = 0.5 * (-qx * wx - qy * wy - qz * wz);
+    d(7) = 0.5 * ( qw * wx + qy * wz - qz * wy);
+    d(8) = 0.5 * ( qw * wy - qx * wz + qz * wx);
+    d(9) = 0.5 * ( qw * wz + qx * wy - qy * wx);
+    // Angular-rate derivative left at zero (constant-rate kinematic predictor).
+    return d;
+}
+
+}  // namespace
+
 Eigen::VectorXd Rocket6DOFProcessModel::propagate(const Eigen::VectorXd& state, const Eigen::VectorXd& control, double dt) {
-    // In a real scenario, we'd inject the current state into the integrator, apply controls,
-    // step by dt, and extract the state. The Full6DOFIntegrator currently maintains internal state,
-    // so we would need a method to set its state.
-    // Assuming such a method exists or we use a static propagation function.
-    
-    // Fallback: simplified propagation logic since integrator_.step() uses internal dt
-    // and internal state. For true integration, the physics engine should be stateless or
-    // have setters/getters.
-    
-    Eigen::VectorXd x_next = state;
-    // Kinematic update (simple Euler for now, should call RK4 physics engine)
-    x_next.segment<3>(0) += state.segment<3>(3) * dt; // pos += vel * dt
-    // ...
+    // Real RK4 integration of the full kinematic state (position, velocity,
+    // quaternion, angular rate) — replaces the previous position-only Euler
+    // stub flagged by the v8 audit (Navigation §4). The quaternion is
+    // re-normalised after the step to stay on the unit sphere.
+    const Eigen::VectorXd k1 = state_derivative(state, control);
+    const Eigen::VectorXd k2 = state_derivative(state + 0.5 * dt * k1, control);
+    const Eigen::VectorXd k3 = state_derivative(state + 0.5 * dt * k2, control);
+    const Eigen::VectorXd k4 = state_derivative(state + dt * k3, control);
+
+    Eigen::VectorXd x_next = state + (dt / 6.0) * (k1 + 2.0 * k2 + 2.0 * k3 + k4);
+
+    // Re-normalise the quaternion (indices 6..9).
+    const double qn = x_next.segment<4>(6).norm();
+    if (qn > 1e-12) x_next.segment<4>(6) /= qn;
+
     return x_next;
 }
 
