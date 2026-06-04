@@ -466,12 +466,73 @@ void Full6DOFIntegrator::reset()
     frame_.t_s = 0.0;
     nav_initialized_ = false;
     gps_accum_s_ = 0.0;
+    next_sep_idx_ = 0;
+    boost_seen_ = false;
 }
 
 void Full6DOFIntegrator::updateTuningParams(const TuningParams& params) {
     auto [ctrl, alloc] = control::ControllerFactory::create(params);
     cfg_.controller = ctrl;
     cfg_.allocator = alloc;
+}
+
+void Full6DOFIntegrator::evaluateStaging(double current_thrust_n)
+{
+    frame_.separation_fired = false;
+    frame_.stage_index = static_cast<int>(next_sep_idx_);
+
+    if (current_thrust_n > 1e-6) boost_seen_ = true;
+
+    if (next_sep_idx_ >= cfg_.stage_separations.size()) return;
+
+    const StageSeparation& ev = cfg_.stage_separations[next_sep_idx_];
+
+    bool triggered = false;
+    switch (ev.trigger) {
+        case gnc::sep::Trigger::Time:
+            triggered = frame_.t_s >= ev.trigger_value;
+            break;
+        case gnc::sep::Trigger::Altitude:
+            triggered = frame_.altitude_msl_m >= ev.trigger_value;
+            break;
+        case gnc::sep::Trigger::Velocity:
+            triggered = frame_.speed_m_s >= ev.trigger_value;
+            break;
+        case gnc::sep::Trigger::Burnout:
+            // Fire once the current stage has thrust and then drops to zero.
+            triggered = boost_seen_ && current_thrust_n <= 1e-6;
+            break;
+        case gnc::sep::Trigger::Event:
+            // Externally commanded (mission sequencer); never auto-fires here.
+            triggered = false;
+            break;
+    }
+    if (!triggered) return;
+
+    // --- Mass discontinuity: drop the jettisoned mass instantaneously. -----
+    double new_mass = frame_.mass_kg - ev.jettison_mass_kg;
+    if (new_mass < 1e-3) new_mass = 1e-3;
+    frame_.mass_kg = new_mass;
+
+    // --- Switch the active stage's mass/inertia/aero/thrust. ----------------
+    // Re-base the wet mass so the mass-fraction interpolation works for the
+    // upper stage (post-jettison mass becomes the new wet mass unless given).
+    cfg_.mass_init_kg = ev.next_mass_init_kg >= 0.0 ? ev.next_mass_init_kg : new_mass;
+    if (ev.next_mass_dry_kg >= 0.0) cfg_.mass_dry_kg = ev.next_mass_dry_kg;
+    if (cfg_.mass_dry_kg > cfg_.mass_init_kg) cfg_.mass_dry_kg = cfg_.mass_init_kg;
+
+    if (ev.has_inertia_wet) cfg_.full.inertia_wet = ev.inertia_wet;
+    if (ev.has_inertia_dry) cfg_.full.inertia_dry = ev.inertia_dry;
+    if (ev.next_thrust_curve) cfg_.thrust_curve = ev.next_thrust_curve;
+    if (ev.next_aero_coeffs)  cfg_.aero_coeffs  = ev.next_aero_coeffs;
+
+    // --- Stamp the frame and advance staging state. -------------------------
+    frame_.separation_fired = true;
+    frame_.separation_label = ev.label;
+    frame_.phase = FlightPhase::Sep1to2;
+    ++next_sep_idx_;
+    frame_.stage_index = static_cast<int>(next_sep_idx_);
+    boost_seen_ = false; // reset burnout detection for the new stage
 }
 
 SimFrame Full6DOFIntegrator::step()
@@ -656,15 +717,22 @@ SimFrame Full6DOFIntegrator::step()
     frame_.lon_deg = lla.lon_rad * gnc::RAD2DEG;
 
     ThrustData td = cfg_.thrust_curve ? cfg_.thrust_curve->lookup(frame_.t_s) : ThrustData{};
-    if (td.thrust_N > 1e-6 && sf.m > cfg_.mass_dry_kg) {
-        frame_.phase = FlightPhase::BoostS1;
+    const bool boosting = td.thrust_N > 1e-6 && sf.m > cfg_.mass_dry_kg;
+    if (boosting) {
+        frame_.phase = (frame_.stage_index >= 1) ? FlightPhase::BoostS2
+                                                  : FlightPhase::BoostS1;
     } else {
         if (sf.v.z > 0.0) {
             frame_.phase = FlightPhase::Terminal;
         } else {
-            frame_.phase = FlightPhase::CoastS1;
+            frame_.phase = (frame_.stage_index >= 1) ? FlightPhase::CoastS2
+                                                      : FlightPhase::CoastS1;
         }
     }
+
+    // v8 P3.3 — evaluate staging after the state/phase update. May jettison mass,
+    // switch the active stage, and override the phase to Sep1to2 on the fire step.
+    evaluateStaging(td.thrust_N);
 
     // Euler angles from quat for telemetry
     // Assuming NED -> Body ZYX or similar.
