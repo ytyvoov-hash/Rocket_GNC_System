@@ -22,6 +22,15 @@ committed_rockets:
 path_a:
   firmware_sha256: null
   signing_key_id: null
+  project: gnc-android
+  target: snapdragon845          # SoC host; STM32L431 peripheral owns the hard-RT loop
+  binary_format: apk             # Kotlin app + libgnc-core-jni.so (NDK)
+  toolchain: android-ndk
+  link: usb-cdc                  # 921600 bps, CRC-16/CCITT (see icd)
+  icd: gnc-android/docs/path_a_link_icd.md
+  rt_suitability: gnc-android/docs/path_a_rt_suitability.md
+  rt_inner_loop_host: stm32l431  # Android NOT cleared for the hard-RT inner loop
+  status: research_spike         # gated behind Path B (P5.1) per Plan v8 §6
 
 # Path B (STM32H7) flight target — v8 P5.1. firmware_sha256 / signing_key_id are
 # populated by gnc-stm32/scripts/sign_firmware.py over the linked image and
