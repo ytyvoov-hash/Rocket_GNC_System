@@ -1,0 +1,23 @@
+# BA closed-loop acceptance golden — deterministic trajectory metrics.
+#
+# v8 P4.1 (Quality §golden set). Each row is one envelope cell: a ballistic
+# vertical-ascent run of the canonical gnc-core Full6DOF integrator (fixed seed,
+# dt = 5 ms) under the BA reference mass/inertia/geometry. These metrics are the
+# regression baseline asserted by gnc-core/tests/closed_loop_test.cc; CI fails if
+# a code change shifts them beyond rockets/BA/tolerances.yaml:golden_metrics.
+#
+# NOTE: this is the bootstrap baseline produced by the in-repo integrator. The
+# full Tier-3 set (>=8 cells as 103-column HDF5 logs re-run on the Path A / Path
+# B binaries and parity-checked) still requires the canonical sim binary + HDF5
+# tooling; that promotion gate is tracked in golden/README.md.
+#
+# Verified byte-identical at -O0 and -O2 (IEEE-754, no fast-math).
+cell,thrust_N,burn_s,mass_init_kg,mass_dry_kg,apogee_m,t_apogee_s,v_max_ms,mach_max,t_burnout_s,mass_final_kg
+cell1,40000,13.1,568.89,283.89,23960.680,65.225,985.927,2.8973,13.055,284.869
+cell2,50000,13.1,568.89,283.89,29085.321,68.510,1212.755,3.5639,13.055,284.869
+cell3,60000,13.1,568.89,283.89,33489.254,70.735,1424.155,4.1851,13.055,284.869
+cell4,70000,13.1,568.89,283.89,37360.347,72.345,1622.058,4.7667,13.055,284.869
+cell5,55000,10.0,568.89,283.89,24688.591,63.785,1091.882,3.2087,9.965,284.888
+cell6,45000,16.0,568.89,283.89,31924.599,71.900,1252.511,3.6807,15.945,284.870
+cell7,50000,13.1,520.00,283.89,30205.554,69.025,1256.494,3.6924,13.045,284.881
+cell8,50000,13.1,620.00,283.89,27996.391,67.970,1170.009,3.4383,13.065,284.788
