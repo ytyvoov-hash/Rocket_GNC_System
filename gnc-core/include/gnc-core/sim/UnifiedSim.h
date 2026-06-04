@@ -117,6 +117,16 @@ struct SimConfig {
     // Actuator Limits (from rocket_properties.yaml)
     double fin_delta_max_deg{20.0};      // Max fin deflection (deg)
     double fin_rate_max_deg_s{300.0};     // Max fin rate (deg/s)
+
+    // v8 P3.2 — delta-dependent aero. When true AND a fin_deflection_coeffs
+    // deck is loaded, the realised pitch/yaw control moment (and roll, when a
+    // roll_aero_coeffs deck is loaded) is sourced from the delta-swept aero
+    // data at the *commanded* equivalent deflection, instead of the allocator's
+    // own linear effectiveness estimate (cmds.allocated_aero_moment). Defaults
+    // OFF: the only committed deck (BA rocket_data_example) is synthetic and
+    // its effectiveness has not been validated against a golden trajectory
+    // (P4.1), so it is opt-in until calibrated.
+    bool delta_aero_from_table{false};
 };
 
 // ---------------------------------------------------------------------------

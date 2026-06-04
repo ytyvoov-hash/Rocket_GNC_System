@@ -124,4 +124,30 @@ ActuatorCommands TVCAllocator::allocate(const ControlEffort& effort, const Alloc
     return cmds;
 }
 
+// ---------------------------------------------------------------------------
+// Equivalent per-axis deflection: effectiveness-weighted mean of the fin
+// deflections, axis by axis. For each axis a with effectiveness column B_a,
+//     delta_a_eq = sum_i( B_a[i] * delta_i ) / sum_i( |B_a[i]| )
+// This recovers the legacy cruciform mapping exactly — pitch row {0,Cm,0,Cm}
+// gives (delta1+delta3)/2, roll row {+Cl,+Cl,-Cl,-Cl} gives
+// (delta0+delta1-delta2-delta3)/4 — and generalises to ring/canard layouts.
+// ---------------------------------------------------------------------------
+Vec3 FinAllocator::equivalentDeflections(const ActuatorCommands& cmds) const {
+    const int n = std::clamp(std::min(cmds.n_fins, geom_.n_fins), 0, kMaxFins);
+    double num_roll = 0.0, den_roll = 0.0;
+    double num_pitch = 0.0, den_pitch = 0.0;
+    double num_yaw = 0.0, den_yaw = 0.0;
+    for (int i = 0; i < n; ++i) {
+        const double d = cmds.fins_rad[i];
+        num_roll  += geom_.eff[i].x * d;  den_roll  += std::abs(geom_.eff[i].x);
+        num_pitch += geom_.eff[i].y * d;  den_pitch += std::abs(geom_.eff[i].y);
+        num_yaw   += geom_.eff[i].z * d;  den_yaw   += std::abs(geom_.eff[i].z);
+    }
+    Vec3 def{0.0, 0.0, 0.0};
+    if (den_roll  > 1e-12) def.x = num_roll  / den_roll;
+    if (den_pitch > 1e-12) def.y = num_pitch / den_pitch;
+    if (den_yaw   > 1e-12) def.z = num_yaw   / den_yaw;
+    return def;
+}
+
 } // namespace gnc::control

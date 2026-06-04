@@ -20,8 +20,10 @@ namespace gnc::control {
 // the matrix solve automatically — no special-casing in allocate().
 //
 // Coefficients default to the legacy generic values (Cl=0.01, Cm=Cn=0.05) so
-// the canonical 4-fin vehicle is unchanged; a template supplies real values
-// (per-Mach lookup wiring is P3.2).
+// the canonical 4-fin vehicle is unchanged; a template supplies real values.
+// When the vehicle ships a delta-swept aero deck, the plant can instead source
+// the realised control moment from that deck at the commanded deflection (see
+// SimConfig::delta_aero_from_table and FinAllocator::equivalentDeflections).
 // ---------------------------------------------------------------------------
 struct FinGeometry {
     int n_fins{4};
@@ -52,6 +54,12 @@ public:
     explicit FinAllocator(const FinGeometry& geom) : geom_(geom) {}
 
     ActuatorCommands allocate(const ControlEffort& effort, const AllocatorState& state) override;
+
+    // Effectiveness-weighted mean deflection per axis ({roll, pitch, yaw}, rad).
+    // Generalises the legacy cruciform mapping (pitch = mean of pitch fins, etc.)
+    // to any FinGeometry, so a delta-swept aero deck can be indexed by the
+    // commanded deflection of an equivalent single surface.
+    Vec3 equivalentDeflections(const ActuatorCommands& cmds) const override;
 
     const FinGeometry& geometry() const { return geom_; }
 
