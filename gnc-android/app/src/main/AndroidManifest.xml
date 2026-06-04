@@ -1,0 +1,20 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- v8 P5.2 Path A app skeleton. USB host for the STM32L431 link; foreground
+     service for the soft-RT GNC outer loop (see docs/path_a_rt_suitability.md). -->
+<manifest xmlns:android="http://schemas.android.com/apk/res/android"
+    package="ai.gnc.pathat">
+
+    <uses-feature android:name="android.hardware.usb.host" />
+    <uses-permission android:name="android.permission.FOREGROUND_SERVICE" />
+    <uses-permission android:name="android.permission.WAKE_LOCK" />
+
+    <application android:label="GNC Path A">
+        <activity android:name=".MainActivity" android:exported="true">
+            <intent-filter>
+                <action android:name="android.intent.action.MAIN" />
+                <category android:name="android.intent.category.LAUNCHER" />
+            </intent-filter>
+        </activity>
+        <service android:name=".FlightService" android:foregroundServiceType="connectedDevice" />
+    </application>
+</manifest>

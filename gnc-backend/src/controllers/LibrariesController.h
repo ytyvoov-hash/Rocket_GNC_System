@@ -6,15 +6,17 @@
 
 #include <drogon/HttpController.h>
 
+#include "auth/KeycloakAuth.h"
+
 namespace gnc::backend {
 
 class LibrariesController : public drogon::HttpController<LibrariesController> {
 public:
     METHOD_LIST_BEGIN
-        ADD_METHOD_TO(LibrariesController::getActuators,    "/api/v1/actuator-library",     drogon::Get);
-        ADD_METHOD_TO(LibrariesController::patchActuators,  "/api/v1/actuator-library",     drogon::Patch);
-        ADD_METHOD_TO(LibrariesController::getControllers,  "/api/v1/controller-library",   drogon::Get);
-        ADD_METHOD_TO(LibrariesController::patchControllers,"/api/v1/controller-library",   drogon::Patch);
+        ADD_METHOD_TO(LibrariesController::getActuators,    "/api/v1/actuator-library",     drogon::Get,   "gnc::backend::ViewerOnly");
+        ADD_METHOD_TO(LibrariesController::patchActuators,  "/api/v1/actuator-library",     drogon::Patch, "gnc::backend::EngineerOnly");
+        ADD_METHOD_TO(LibrariesController::getControllers,  "/api/v1/controller-library",   drogon::Get,   "gnc::backend::ViewerOnly");
+        ADD_METHOD_TO(LibrariesController::patchControllers,"/api/v1/controller-library",   drogon::Patch, "gnc::backend::EngineerOnly");
     METHOD_LIST_END
 
     using Cb = std::function<void(const drogon::HttpResponsePtr&)>;

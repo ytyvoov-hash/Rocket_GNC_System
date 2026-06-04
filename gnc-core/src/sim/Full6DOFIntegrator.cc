@@ -1,5 +1,6 @@
 #include "gnc-core/sim/Full6DOFIntegrator.h"
 #include "gnc-core/control/ControllerFactory.h"
+#include <algorithm>
 #include <cmath>
 
 namespace gnc::sim {
@@ -284,19 +285,49 @@ Derivative compute_derivative(const State& s, const SimConfig& cfg, const gnc::c
             M_aero_b.z += q_dyn * S_ref * L_ref * damp.Clp * (s.w.z * L_2V); // Roll damping
         }
 
-        // Apply Fin Deflection (assumed 0 deg for unguided base sim)
-        if (cfg.fin_deflection_coeffs && cfg.fin_deflection_coeffs->isLoaded()) {
-            double delta_deg = 0.0; // Would come from controller state if guided
-            FinDeflectionData fin_data = cfg.fin_deflection_coeffs->lookup(mach, delta_deg);
-            M_aero_b.y += q_dyn * S_ref * L_ref * fin_data.Cmd;
-            // Also adds to normal force, but we focus on moments for now
+        // v8 P3.2 — delta-dependent control-surface aero. The commanded fin
+        // deflections map (via the allocator geometry) to an equivalent
+        // deflection per axis; that indexes the delta-swept aero deck so the
+        // realised control moment is sourced from aero data rather than the
+        // allocator's own linear estimate. Gated by delta_aero_from_table; when
+        // off the legacy zero-deflection lookup is preserved exactly.
+        const bool use_delta_aero =
+            cfg.delta_aero_from_table &&
+            cfg.fin_deflection_coeffs && cfg.fin_deflection_coeffs->isLoaded();
+
+        Vec3 def_eq{0.0, 0.0, 0.0}; // {roll, pitch, yaw} equivalent deflection (rad)
+        if (use_delta_aero && cfg.allocator) {
+            def_eq = cfg.allocator->equivalentDeflections(cmds);
         }
 
-        // Apply Roll Aero Coupling
+        // Apply Fin Deflection. Legacy path (use_delta_aero == false) indexes
+        // the deck at 0 deg, as before; the delta path uses the commanded
+        // pitch/yaw equivalent deflection and applies the resulting moments
+        // with the correct sign (the deck is tabulated for |delta|).
+        if (cfg.fin_deflection_coeffs && cfg.fin_deflection_coeffs->isLoaded()) {
+            const double dp_deg = use_delta_aero ? def_eq.y * gnc::RAD2DEG : 0.0; // pitch
+            const double dy_deg = use_delta_aero ? def_eq.z * gnc::RAD2DEG : 0.0; // yaw
+            const double sp = dp_deg >= 0.0 ? 1.0 : -1.0;
+            const double sy = dy_deg >= 0.0 ? 1.0 : -1.0;
+            FinDeflectionData fp = cfg.fin_deflection_coeffs->lookup(mach, std::abs(dp_deg));
+            FinDeflectionData fy = cfg.fin_deflection_coeffs->lookup(mach, std::abs(dy_deg));
+            M_aero_b.y += sp * q_dyn * S_ref * L_ref * fp.Cmd; // pitch control moment
+            if (use_delta_aero) {
+                // Yaw shares the fin moment derivative by cruciform symmetry.
+                M_aero_b.x += sy * q_dyn * S_ref * L_ref * fy.Cmd;
+            }
+            // Normal-force coupling (Cnd) is left to a follow-up; for the
+            // committed decks it is ~1-2 orders of magnitude below the moment
+            // term and its body-axis sign needs validation against a golden run.
+        }
+
+        // Apply Roll Aero Coupling at the commanded roll-equivalent deflection.
+        bool roll_from_table = false;
         if (cfg.roll_aero_coeffs && cfg.roll_aero_coeffs->isLoaded()) {
-            double def_roll = 0.0; 
-            RollAeroData roll_data = cfg.roll_aero_coeffs->lookup(mach, alpha_deg, def_roll);
+            const double def_roll_deg = use_delta_aero ? def_eq.x * gnc::RAD2DEG : 0.0;
+            RollAeroData roll_data = cfg.roll_aero_coeffs->lookup(mach, alpha_deg, def_roll_deg);
             M_aero_b.z += q_dyn * S_ref * L_ref * roll_data.Cll;
+            roll_from_table = use_delta_aero;
         }
 
         Vec3 r_cp_cg = sub(cfg.full.r_cp_m, cg);
@@ -304,11 +335,22 @@ Derivative compute_derivative(const State& s, const SimConfig& cfg, const gnc::c
         M_aero_b = add(M_aero_b, M_cp);
 
         M_b = add(M_b, M_aero_b);
-    }
 
-    // Apply Controller Moments
-    M_b = add(M_b, cmds.allocated_aero_moment);
-    M_b = add(M_b, cmds.allocated_thrust_moment);
+        // Allocator-sourced control moment for the axes NOT taken from the aero
+        // deck. With delta-aero off this is the full allocated moment (legacy);
+        // with it on, pitch/yaw (and roll, if a roll deck is loaded) are already
+        // injected from the deck above, so they are zeroed here to avoid double
+        // counting.
+        Vec3 mc = cmds.allocated_aero_moment;
+        if (use_delta_aero) { mc.x = 0.0; mc.y = 0.0; }
+        if (roll_from_table) { mc.z = 0.0; }
+        M_b = add(M_b, mc);
+        M_b = add(M_b, cmds.allocated_thrust_moment);
+    }
+    else {
+        // No relative airflow: no aero control authority, only thrust-vector.
+        M_b = add(M_b, cmds.allocated_thrust_moment);
+    }
 
     // Transform forces to NED
     Vec3 F_aero_prop_n = rotate(s.q, F_b);
@@ -422,12 +464,75 @@ void Full6DOFIntegrator::reset()
     frame_.q_b_n = cfg_.q0_b_n;
     frame_.omega_b_b = {0, 0, 0};
     frame_.t_s = 0.0;
+    nav_initialized_ = false;
+    gps_accum_s_ = 0.0;
+    next_sep_idx_ = 0;
+    boost_seen_ = false;
 }
 
 void Full6DOFIntegrator::updateTuningParams(const TuningParams& params) {
     auto [ctrl, alloc] = control::ControllerFactory::create(params);
     cfg_.controller = ctrl;
     cfg_.allocator = alloc;
+}
+
+void Full6DOFIntegrator::evaluateStaging(double current_thrust_n)
+{
+    frame_.separation_fired = false;
+    frame_.stage_index = static_cast<int>(next_sep_idx_);
+
+    if (current_thrust_n > 1e-6) boost_seen_ = true;
+
+    if (next_sep_idx_ >= cfg_.stage_separations.size()) return;
+
+    const StageSeparation& ev = cfg_.stage_separations[next_sep_idx_];
+
+    bool triggered = false;
+    switch (ev.trigger) {
+        case gnc::sep::Trigger::Time:
+            triggered = frame_.t_s >= ev.trigger_value;
+            break;
+        case gnc::sep::Trigger::Altitude:
+            triggered = frame_.altitude_msl_m >= ev.trigger_value;
+            break;
+        case gnc::sep::Trigger::Velocity:
+            triggered = frame_.speed_m_s >= ev.trigger_value;
+            break;
+        case gnc::sep::Trigger::Burnout:
+            // Fire once the current stage has thrust and then drops to zero.
+            triggered = boost_seen_ && current_thrust_n <= 1e-6;
+            break;
+        case gnc::sep::Trigger::Event:
+            // Externally commanded (mission sequencer); never auto-fires here.
+            triggered = false;
+            break;
+    }
+    if (!triggered) return;
+
+    // --- Mass discontinuity: drop the jettisoned mass instantaneously. -----
+    double new_mass = frame_.mass_kg - ev.jettison_mass_kg;
+    if (new_mass < 1e-3) new_mass = 1e-3;
+    frame_.mass_kg = new_mass;
+
+    // --- Switch the active stage's mass/inertia/aero/thrust. ----------------
+    // Re-base the wet mass so the mass-fraction interpolation works for the
+    // upper stage (post-jettison mass becomes the new wet mass unless given).
+    cfg_.mass_init_kg = ev.next_mass_init_kg >= 0.0 ? ev.next_mass_init_kg : new_mass;
+    if (ev.next_mass_dry_kg >= 0.0) cfg_.mass_dry_kg = ev.next_mass_dry_kg;
+    if (cfg_.mass_dry_kg > cfg_.mass_init_kg) cfg_.mass_dry_kg = cfg_.mass_init_kg;
+
+    if (ev.has_inertia_wet) cfg_.full.inertia_wet = ev.inertia_wet;
+    if (ev.has_inertia_dry) cfg_.full.inertia_dry = ev.inertia_dry;
+    if (ev.next_thrust_curve) cfg_.thrust_curve = ev.next_thrust_curve;
+    if (ev.next_aero_coeffs)  cfg_.aero_coeffs  = ev.next_aero_coeffs;
+
+    // --- Stamp the frame and advance staging state. -------------------------
+    frame_.separation_fired = true;
+    frame_.separation_label = ev.label;
+    frame_.phase = FlightPhase::Sep1to2;
+    ++next_sep_idx_;
+    frame_.stage_index = static_cast<int>(next_sep_idx_);
+    boost_seen_ = false; // reset burnout detection for the new stage
 }
 
 SimFrame Full6DOFIntegrator::step()
@@ -456,16 +561,63 @@ SimFrame Full6DOFIntegrator::step()
         // Add sensor noise
         SensorMeasurements meas = sensor_model_.compute_measurements(s.r, s.v, s.q, s.w, a_sf_b, cfg_.dt_s);
 
-        // For now, the controller uses the direct measured states (in a real system, an Estimator would sit here)
-        c_state.position_n = meas.gps_pos_ned;
-        c_state.velocity_n = meas.gps_vel_ned;
-        c_state.angular_velocity_rad_s = meas.gyro_measured;
+        // ----- v8 INV-3: estimator-in-the-loop ----------------------------
+        // The controller is fed from the ErrorStateKF output (noisy, estimated)
+        // unless feedback_source is explicitly Truth (debug-only).
+        if (cfg_.feedback_source == FeedbackSource::Estimated) {
+            if (!nav_initialized_) {
+                estimation::EskfParams ep;
+                ep.gravity_n = earth_model_.compute_gravity_ned(cfg_.r0_n);
+                // Use configured sensor noise; fall back to defaults if unset
+                // (0 std would make the measurement covariance singular).
+                if (cfg_.sensor_params.gps_pos_std > 0.0)
+                    ep.gps_pos_std = cfg_.sensor_params.gps_pos_std;
+                if (cfg_.sensor_params.gps_vel_std > 0.0)
+                    ep.gps_vel_std = cfg_.sensor_params.gps_vel_std;
+                if (cfg_.sensor_params.accel_noise_density > 0.0)
+                    ep.sigma_a = cfg_.sensor_params.accel_noise_density;
+                if (cfg_.sensor_params.gyro_noise_density > 0.0)
+                    ep.sigma_g = cfg_.sensor_params.gyro_noise_density;
+                nav_.initialize(cfg_.r0_n, cfg_.v0_n, cfg_.q0_b_n, ep);
+                nav_initialized_ = true;
+                gps_accum_s_ = 0.0;
+            }
+            nav_.predict(meas.accel_measured, meas.gyro_measured, cfg_.dt_s);
+            gps_accum_s_ += cfg_.dt_s;
+            if (gps_accum_s_ >= (1.0 / cfg_.gps_update_hz)) {
+                nav_.update_gps(meas.gps_pos_ned, meas.gps_vel_ned);
+                gps_accum_s_ = 0.0;
+            }
+            const auto nav_st = nav_.state();
+            c_state.position_n = nav_st.pos_n;
+            c_state.velocity_n = nav_st.vel_n;
+            // Euler from estimated quaternion (same ZYX convention used below).
+            const Quat& qe = nav_st.q_b_n;
+            double sinp = 2.0 * (qe.w * qe.y - qe.z * qe.x);
+            if (std::abs(sinp) >= 1.0)
+                c_state.euler_angles_rad.y = std::copysign(gnc::PI * 0.5, sinp);
+            else
+                c_state.euler_angles_rad.y = std::asin(sinp);
+            double sqy = qe.y * qe.y, sqz = qe.z * qe.z, sqx = qe.x * qe.x;
+            c_state.euler_angles_rad.z = std::atan2(2.0 * (qe.w * qe.z + qe.x * qe.y),
+                                                    1.0 - 2.0 * (sqy + sqz));
+            c_state.euler_angles_rad.x = std::atan2(2.0 * (qe.w * qe.x + qe.y * qe.z),
+                                                    1.0 - 2.0 * (sqx + sqy));
+            // Rate from gyro corrected by estimated bias.
+            c_state.angular_velocity_rad_s = {
+                meas.gyro_measured.x - nav_st.bias_g_b.x,
+                meas.gyro_measured.y - nav_st.bias_g_b.y,
+                meas.gyro_measured.z - nav_st.bias_g_b.z};
+        } else {
+            // FeedbackSource::Truth — DEBUG ONLY (v8 INV-3: produces non-representative results)
+            c_state.position_n = meas.gps_pos_ned;
+            c_state.velocity_n = meas.gps_vel_ned;
+            c_state.angular_velocity_rad_s = meas.gyro_measured;
+            c_state.euler_angles_rad.x = frame_.roll_deg * gnc::DEG2RAD;
+            c_state.euler_angles_rad.y = frame_.pitch_deg * gnc::DEG2RAD;
+            c_state.euler_angles_rad.z = frame_.yaw_deg * gnc::DEG2RAD;
+        }
         c_state.mass_kg = s.m;
-        
-        // PI, DEG2RAD, RAD2DEG are in gnc::types.h
-        c_state.euler_angles_rad.x = frame_.roll_deg * gnc::DEG2RAD;
-        c_state.euler_angles_rad.y = frame_.pitch_deg * gnc::DEG2RAD;
-        c_state.euler_angles_rad.z = frame_.yaw_deg * gnc::DEG2RAD;
 
         // Approximations for dynamic pressure and thrust for the allocator
         double alt = -s.r.z;
@@ -519,7 +671,8 @@ SimFrame Full6DOFIntegrator::step()
 
     double max_fin_cmd = 1e-6;
     double max_fin_act = 1e-6;
-    for(int i=0; i<4; ++i) {
+    const int n_active_fins = std::clamp(act_cmds.n_fins, 0, gnc::control::kMaxFins);
+    for(int i=0; i<n_active_fins; ++i) {
         double c = std::abs(act_cmds.fins_rad[i]);
         max_fin_cmd = std::max(max_fin_cmd, c);
         act_cmds.fins_rad[i] = step_actuator(act_cmds.fins_rad[i], fin_angles_rad_[i]);
@@ -564,15 +717,22 @@ SimFrame Full6DOFIntegrator::step()
     frame_.lon_deg = lla.lon_rad * gnc::RAD2DEG;
 
     ThrustData td = cfg_.thrust_curve ? cfg_.thrust_curve->lookup(frame_.t_s) : ThrustData{};
-    if (td.thrust_N > 1e-6 && sf.m > cfg_.mass_dry_kg) {
-        frame_.phase = FlightPhase::BoostS1;
+    const bool boosting = td.thrust_N > 1e-6 && sf.m > cfg_.mass_dry_kg;
+    if (boosting) {
+        frame_.phase = (frame_.stage_index >= 1) ? FlightPhase::BoostS2
+                                                  : FlightPhase::BoostS1;
     } else {
         if (sf.v.z > 0.0) {
             frame_.phase = FlightPhase::Terminal;
         } else {
-            frame_.phase = FlightPhase::CoastS1;
+            frame_.phase = (frame_.stage_index >= 1) ? FlightPhase::CoastS2
+                                                      : FlightPhase::CoastS1;
         }
     }
+
+    // v8 P3.3 — evaluate staging after the state/phase update. May jettison mass,
+    // switch the active stage, and override the phase to Sep1to2 on the fire step.
+    evaluateStaging(td.thrust_N);
 
     // Euler angles from quat for telemetry
     // Assuming NED -> Body ZYX or similar.
@@ -729,9 +889,11 @@ SimFrame Full6DOFIntegrator::step()
     frame_.log_row.autopilot_mode = 0.0;
     frame_.log_row.flight_phase = static_cast<double>(frame_.phase);
 
-    // Actuators
-    frame_.actuator_positions = std::vector<double>(act_cmds.fins_rad.begin(), act_cmds.fins_rad.end());
-    if (act_cmds.fins_rad.size() >= 4) {
+    // Actuators (log only the active surfaces)
+    frame_.actuator_positions = std::vector<double>(
+        act_cmds.fins_rad.begin(),
+        act_cmds.fins_rad.begin() + std::clamp(act_cmds.n_fins, 0, gnc::control::kMaxFins));
+    if (act_cmds.n_fins >= 4) {
         frame_.log_row.fin1_deflection_rad = act_cmds.fins_rad[0];
         frame_.log_row.fin2_deflection_rad = act_cmds.fins_rad[1];
         frame_.log_row.fin3_deflection_rad = act_cmds.fins_rad[2];

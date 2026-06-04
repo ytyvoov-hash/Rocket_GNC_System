@@ -9,28 +9,45 @@ released_at: "TBD"
 
 committed_rockets:
   - id: BA
-  type: sounding
-  notes: "Reference template; used for unit tests and golden-log validation."
-  required_artefacts:
-  golden: rockets/BA/golden/                  # >= 8 envelope cells (HDF5)
-  tolerances: rockets/BA/tolerances.yaml
-  scenarios: rockets/BA/scenarios.yaml
-  onboarding_report: rockets/BA/onboarding_report.md
+    type: sounding
+    notes: "Reference template; used for unit tests and golden-log validation."
+    required_artefacts:
+      golden: rockets/BA/golden/                  # >= 8 envelope cells (HDF5)
+      tolerances: rockets/BA/tolerances.yaml
+      scenarios: rockets/BA/scenarios.yaml
+      onboarding_report: rockets/BA/onboarding_report.md
 
-  # Path A and Path B signed-firmware hashes are filled by the firmware-signing
-  # pipeline at release time and verified at boot (§1.5.1, §10).
-  - dfg
-  - ES_273
-
-_copy
-_copy
+# Path A and Path B signed-firmware hashes are filled by the firmware-signing
+# pipeline at release time and verified at boot (§1.5.1, §10).
 path_a:
   firmware_sha256: null
   signing_key_id: null
+  project: gnc-android
+  target: snapdragon845          # SoC host; STM32L431 peripheral owns the hard-RT loop
+  binary_format: apk             # Kotlin app + libgnc-core-jni.so (NDK)
+  toolchain: android-ndk
+  link: usb-cdc                  # 921600 bps, CRC-16/CCITT (see icd)
+  icd: gnc-android/docs/path_a_link_icd.md
+  rt_suitability: gnc-android/docs/path_a_rt_suitability.md
+  rt_inner_loop_host: stm32l431  # Android NOT cleared for the hard-RT inner loop
+  status: research_spike         # gated behind Path B (P5.1) per Plan v8 §6
 
+# Path B (STM32H7) flight target — v8 P5.1. firmware_sha256 / signing_key_id are
+# populated by gnc-stm32/scripts/sign_firmware.py over the linked image and
+# verified at boot by gnc::stm32::FirmwareSignature (INV-6). null = unsigned dev
+# image, which a flight build (GNC_FLIGHT_BUILD) refuses to run.
 path_b:
   firmware_sha256: null
   signing_key_id: null
+  project: gnc-stm32
+  target: stm32h7
+  binary_format: elf
+  toolchain: arm-none-eabi
+  icd: gnc-stm32/docs/firmware_backend_icd.md
+  flight_build_requires:
+    any_stubbed: false      # every HAL interface must resolve to a native driver
+    auth_enabled: true      # GNC_ALLOW_AUTH_BYPASS must be OFF
+    firmware_signed: true   # image SHA-256 must match path_b.firmware_sha256
 
 # Tier 3 SIL envelope grid generator: each rocket contributes
 #   rockets/<id>/envelope.yaml -> envelope_grid(envelope) -> >= 8 cells

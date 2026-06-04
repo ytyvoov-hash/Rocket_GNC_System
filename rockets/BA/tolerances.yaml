@@ -1,4 +1,17 @@
-schema_version: "v5.4"
+schema_version: "v8"
 tolerances:
+  # Log-parity tolerances (Path A vs Path B vs golden HDF5) — Tier-3 promotion.
   position_m: 0.5
   velocity_m_s: 0.1
+# v8 P4.1 — acceptance golden-metric tolerances. Applied by
+# gnc-core/tests/closed_loop_test.cc when comparing each scenario cell against
+# golden/golden_metrics.csv. Relative bounds are generous vs the observed
+# cross-optimisation spread (0% between -O0 and -O2) so the gate flags genuine
+# behavioural regressions, not floating-point noise.
+golden_metrics:
+  apogee_rel: 0.005       # 0.5 % of apogee_m
+  v_max_rel: 0.005        # 0.5 % of v_max_ms
+  mach_max_rel: 0.005     # 0.5 % of mach_max
+  t_apogee_abs_s: 0.20
+  t_burnout_abs_s: 0.20
+  mass_final_abs_kg: 2.0

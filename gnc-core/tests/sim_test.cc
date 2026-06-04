@@ -1,5 +1,6 @@
 // gnc-core/tests/sim_test.cc
-// Stream C MVP regressions for PointMassSim. Three flagship scenarios:
+// Stream C MVP regressions for the 3-DOF integrator (UnifiedSim/Mode::ThreeDOF,
+// which superseded the legacy PointMassSim). Three flagship scenarios:
 //   1. Free fall   — no thrust, no drag. Checks that v == g·t and r == 0.5·g·t².
 //   2. Vertical thrust > weight, no drag — confirms the rocket climbs and
 //      the apex height matches the analytic prediction within 1 %.
@@ -11,19 +12,20 @@
 #include <catch2/catch_test_macros.hpp>
 #include <catch2/matchers/catch_matchers_floating_point.hpp>
 
-#include "gnc-core/sim/PointMassSim.h"
+#include "gnc-core/sim/UnifiedSim.h"
 
 #include <cmath>
 
 using namespace gnc;
-using sim::PointMassSim;
+using sim::UnifiedSim;
+using sim::Mode;
 using sim::SimConfig;
 using sim::SimFrame;
 using Catch::Matchers::WithinRel;
 
 namespace {
 
-SimFrame run_until_finished(PointMassSim& s, int max_steps = 200000)
+SimFrame run_until_finished(UnifiedSim& s, int max_steps = 200000)
 {
     SimFrame f = s.current();
     int n = 0;
@@ -39,7 +41,7 @@ SimFrame run_until_finished(PointMassSim& s, int max_steps = 200000)
 // ---------------------------------------------------------------------------
 // 1. Free fall from rest at altitude. Vacuum, no thrust.
 // ---------------------------------------------------------------------------
-TEST_CASE("PointMassSim free-fall from altitude obeys v=gt and r=0.5gt^2",
+TEST_CASE("ThreeDOF free-fall from altitude obeys v=gt and r=0.5gt^2",
           "[sim][freefall]")
 {
     SimConfig cfg;
@@ -52,7 +54,7 @@ TEST_CASE("PointMassSim free-fall from altitude obeys v=gt and r=0.5gt^2",
     cfg.dt_s         = 0.001;
     cfg.t_end_s      = 1.0;
 
-    PointMassSim s(cfg);
+    UnifiedSim s(cfg, Mode::ThreeDOF);
     SimFrame f;
     for (int i = 0; i < 1000; ++i) f = s.step();
 
@@ -72,7 +74,7 @@ TEST_CASE("PointMassSim free-fall from altitude obeys v=gt and r=0.5gt^2",
 //    mass loss is a closed form, but for our purposes we just check the
 //    rocket reaches a positive apex and comes back down to ground).
 // ---------------------------------------------------------------------------
-TEST_CASE("PointMassSim vertical thrust climbs then descends through ground",
+TEST_CASE("ThreeDOF vertical thrust climbs then descends through ground",
           "[sim][thrust]")
 {
     SimConfig cfg;
@@ -88,7 +90,7 @@ TEST_CASE("PointMassSim vertical thrust climbs then descends through ground",
     cfg.t_end_s      = 120.0;
     cfg.ground_alt_m = 0.0;
 
-    PointMassSim s(cfg);
+    UnifiedSim s(cfg, Mode::ThreeDOF);
 
     // Sample apex by tracking minimum r_n.z (most negative ⇒ highest altitude).
     double apex_alt = 0.0;
@@ -111,7 +113,7 @@ TEST_CASE("PointMassSim vertical thrust climbs then descends through ground",
     REQUIRE(std::abs(-last.r_n.z) < 1.0);    // within 1 m of ground
 }
 
-TEST_CASE("PointMassSim mass interpolates linearly during burn",
+TEST_CASE("ThreeDOF mass interpolates linearly during burn",
           "[sim][mass]")
 {
     SimConfig cfg;
@@ -125,7 +127,7 @@ TEST_CASE("PointMassSim mass interpolates linearly during burn",
     cfg.t_end_s      = 5.0;
     cfg.ground_alt_m = -1000.0;
 
-    PointMassSim s(cfg);
+    UnifiedSim s(cfg, Mode::ThreeDOF);
 
     // After 2 s (50 % through burn) mass should be (100 + 60)/2 = 80.
     SimFrame f;
@@ -141,7 +143,7 @@ TEST_CASE("PointMassSim mass interpolates linearly during burn",
 // 3. Drag-limited terminal velocity. Drop a 1 kg point with Cd·A = 0.5 m².
 //    Terminal v_t = sqrt(2 m g / (rho Cd A)).
 // ---------------------------------------------------------------------------
-TEST_CASE("PointMassSim approaches drag-limited terminal velocity",
+TEST_CASE("ThreeDOF approaches drag-limited terminal velocity",
           "[sim][drag]")
 {
     SimConfig cfg;
@@ -156,7 +158,7 @@ TEST_CASE("PointMassSim approaches drag-limited terminal velocity",
     cfg.t_end_s      = 60.0;
     cfg.ground_alt_m = 0.0;
 
-    PointMassSim s(cfg);
+    UnifiedSim s(cfg, Mode::ThreeDOF);
     while (!s.finished()) s.step();
     auto f = s.current();
 
@@ -173,7 +175,7 @@ TEST_CASE("PointMassSim approaches drag-limited terminal velocity",
 // 4. Frame ordering / determinism. Two runs with identical config produce
 //    identical apex altitudes — guards against accidental global state.
 // ---------------------------------------------------------------------------
-TEST_CASE("PointMassSim is deterministic (no global state)", "[sim][determinism]")
+TEST_CASE("ThreeDOF is deterministic (no global state)", "[sim][determinism]")
 {
     SimConfig cfg;
     cfg.thrust_N     = 4000.0;
@@ -185,7 +187,7 @@ TEST_CASE("PointMassSim is deterministic (no global state)", "[sim][determinism]
     cfg.t_end_s      = 60.0;
 
     auto apex = [&](void) {
-        PointMassSim s(cfg);
+        UnifiedSim s(cfg, Mode::ThreeDOF);
         double a = 0.0;
         while (!s.finished()) {
             auto fr = s.step();

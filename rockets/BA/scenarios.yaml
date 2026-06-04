@@ -1,4 +1,64 @@
-schema_version: "v5.4"
+schema_version: "v8"
+# v8 P4.1 — acceptance scenario library. The eight cells span the BA propulsion
+# / mass envelope; each is a deterministic ballistic vertical ascent whose golden
+# metrics live in golden/golden_metrics.csv and are regression-checked by
+# gnc-core/tests/closed_loop_test.cc. Off-nominal (wind, dispersions) and the
+# closed-loop GNC cells are added once the stub control laws are graduated
+# (cross-cutting item) so a golden is not baked onto stub-controller behaviour.
 scenarios:
-  - name: "Nominal Ascent"
+  - id: "cell1"
+    name: "Low thrust (40 kN)"
+    thrust_n: 40000.0
+    burn_time_s: 13.1
+    mass_init_kg: 568.89
+    mass_dry_kg: 283.89
+    wind_speed_m_s: 0.0
+  - id: "cell2"
+    name: "Nominal thrust (50 kN)"
+    thrust_n: 50000.0
+    burn_time_s: 13.1
+    mass_init_kg: 568.89
+    mass_dry_kg: 283.89
+    wind_speed_m_s: 0.0
+  - id: "cell3"
+    name: "High thrust (60 kN)"
+    thrust_n: 60000.0
+    burn_time_s: 13.1
+    mass_init_kg: 568.89
+    mass_dry_kg: 283.89
+    wind_speed_m_s: 0.0
+  - id: "cell4"
+    name: "Max thrust (70 kN)"
+    thrust_n: 70000.0
+    burn_time_s: 13.1
+    mass_init_kg: 568.89
+    mass_dry_kg: 283.89
+    wind_speed_m_s: 0.0
+  - id: "cell5"
+    name: "Short burn (10 s)"
+    thrust_n: 55000.0
+    burn_time_s: 10.0
+    mass_init_kg: 568.89
+    mass_dry_kg: 283.89
+    wind_speed_m_s: 0.0
+  - id: "cell6"
+    name: "Long burn (16 s)"
+    thrust_n: 45000.0
+    burn_time_s: 16.0
+    mass_init_kg: 568.89
+    mass_dry_kg: 283.89
+    wind_speed_m_s: 0.0
+  - id: "cell7"
+    name: "Light wet mass (520 kg)"
+    thrust_n: 50000.0
+    burn_time_s: 13.1
+    mass_init_kg: 520.00
+    mass_dry_kg: 283.89
+    wind_speed_m_s: 0.0
+  - id: "cell8"
+    name: "Heavy wet mass (620 kg)"
+    thrust_n: 50000.0
+    burn_time_s: 13.1
+    mass_init_kg: 620.00
+    mass_dry_kg: 283.89
     wind_speed_m_s: 0.0

@@ -59,7 +59,20 @@ ControllerFactory::create(const TuningParams& params) {
     if (params.controller_type == "tvc") {
         allocator = std::make_shared<TVCAllocator>();
     } else {
-        allocator = std::make_shared<FinAllocator>();
+        // Build the fin geometry from the (template-supplied) layout. Defaults
+        // preserve the canonical 4-fin "+" when a template omits these.
+        FinGeometry geom;
+        if (params.fin_layout == "ring") {
+            geom = FinGeometry::ring(params.n_fins, params.Cl_delta, params.Cm_delta,
+                                     params.fin_delta_max_rad);
+        } else if (params.fin_layout == "canard") {
+            geom = FinGeometry::canard4(params.Cl_delta, params.Cm_delta, params.Cn_delta,
+                                        params.fin_delta_max_rad);
+        } else {
+            geom = FinGeometry::cruciform4(params.Cl_delta, params.Cm_delta, params.Cn_delta,
+                                           params.fin_delta_max_rad);
+        }
+        allocator = std::make_shared<FinAllocator>(geom);
     }
 
     return {controller, allocator};

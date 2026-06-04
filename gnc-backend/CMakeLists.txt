@@ -34,6 +34,7 @@ find_package(Drogon CONFIG REQUIRED)
 find_package(yaml-cpp CONFIG REQUIRED)
 find_package(OpenSSL REQUIRED)
 find_package(nlohmann_json CONFIG REQUIRED)
+find_package(jwt-cpp CONFIG REQUIRED)   # RS256 JWT verification (auth)
 # find_package(libpqxx CONFIG REQUIRED)        # enable when DB wired
 # find_package(HDF5 REQUIRED COMPONENTS C CXX) # enable when log writer wired
 
@@ -77,7 +78,21 @@ target_link_libraries(gnc-backend
         Drogon::Drogon
         OpenSSL::SSL
         OpenSSL::Crypto
+        jwt-cpp::jwt-cpp
 )
+
+# ---------------------------------------------------------------------------
+# Auth bypass guard (v8 INV-6). When ON (default, for local/dev) the
+# GNC_AUTH_DISABLED=1 runtime escape hatch is compiled in. Release / flight
+# builds MUST configure -DGNC_ALLOW_AUTH_BYPASS=OFF so the bypass code path
+# does not exist in the binary at all.
+# ---------------------------------------------------------------------------
+option(GNC_ALLOW_AUTH_BYPASS "Compile in the GNC_AUTH_DISABLED dev auth bypass" ON)
+if(GNC_ALLOW_AUTH_BYPASS)
+    target_compile_definitions(gnc-backend PRIVATE GNC_ALLOW_AUTH_BYPASS)
+    message(WARNING "GNC_ALLOW_AUTH_BYPASS=ON: dev auth bypass is compiled in. "
+                    "Set -DGNC_ALLOW_AUTH_BYPASS=OFF for release/flight builds.")
+endif()
 
 # Windows-specific libraries for HAL implementations
 if(MSVC)

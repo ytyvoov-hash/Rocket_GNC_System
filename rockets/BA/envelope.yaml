@@ -1,3 +1,11 @@
-schema_version: "v5.4"
+schema_version: "v8"
+# v8 P4.1 — flight envelope spanned by the acceptance scenario cells in
+# scenarios.yaml. The ballistic golden cells reach Mach ~2.9–4.8 at the BA
+# reference mass/thrust grid; the subsonic floor is retained for the low-q
+# departure/recovery regime.
 envelope:
-  mach_range: [0.1, 2.5]
+  mach_range: [0.1, 5.0]
+  thrust_range_n: [40000.0, 70000.0]
+  wet_mass_range_kg: [520.0, 620.0]
+  burn_time_range_s: [10.0, 16.0]
+  cells: 8

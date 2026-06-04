@@ -17,13 +17,54 @@
 #include "gnc-core/control/IController.h"
 #include "gnc-core/control/IControlAllocator.h"
 #include "gnc-core/logging/DataLogger.h"
+#include "gnc-core/sep/SeparationTrigger.h"
 
 namespace gnc::sim {
+
+// ---------------------------------------------------------------------------
+// v8 P3.3 — staging / separation.
+//
+// A StageSeparation is a single jettison event: a trigger condition plus the
+// mass dropped and the (optional) post-separation vehicle reconfiguration. The
+// Full6DOF integrator evaluates events in order; when one fires it removes the
+// jettisoned mass instantaneously and switches the active mass/inertia/aero/
+// thrust to the upper stage. Fields left at their "keep" sentinels (<0,
+// nullptr, has_* == false) preserve the current value.
+//
+// Upper-stage thrust curves are looked up in *absolute mission time*, i.e. the
+// curve should include its pre-ignition zero-thrust segment.
+// ---------------------------------------------------------------------------
+struct StageSeparation {
+    gnc::sep::Trigger trigger{gnc::sep::Trigger::Burnout};
+    double trigger_value{0.0};   // Time: s | Altitude: m MSL | Velocity: m/s
+    double jettison_mass_kg{0.0};
+    std::string label{"separation"};
+
+    // Optional post-separation reconfiguration ("keep current" by default).
+    double next_mass_init_kg{-1.0};   // new wet mass (defaults to post-jettison mass)
+    double next_mass_dry_kg{-1.0};
+    bool   has_inertia_wet{false};
+    Matrix3x3 inertia_wet{};
+    bool   has_inertia_dry{false};
+    Matrix3x3 inertia_dry{};
+    std::shared_ptr<ThrustCurve> next_thrust_curve;
+    std::shared_ptr<AeroCoeffs>  next_aero_coeffs;
+};
 
 enum class Mode {
     ThreeDOF,
     Tuning,
     Full
+};
+
+// v8 INV-3: SIL must close the loop on *estimated* state produced by the
+// navigation filter from noisy IMU + GPS. Feeding the controller ground-truth
+// (or undelayed raw measurements as the legacy loop did) makes every SIL run
+// non-representative. Estimated is the only mode permitted to produce a SIL
+// "pass"; Truth exists for debugging/bring-up only.
+enum class FeedbackSource {
+    Estimated,  // controller consumes ErrorStateKF output (default)
+    Truth       // DEBUG ONLY — controller consumes ground-truth state
 };
 
 // ---------------------------------------------------------------------------
@@ -59,6 +100,10 @@ struct SimConfig {
     // Integrator cadence
     double dt_s{0.01};            // 100 Hz default
     double t_end_s{300.0};        // hard cutoff
+
+    // v8 INV-3: which state the controller is fed. Defaults to the estimator.
+    FeedbackSource feedback_source{FeedbackSource::Estimated};
+    double gps_update_hz{10.0};   // GPS measurement cadence into the estimator
 
     bool use_ecef{false};         // Enable ECEF coordinate propagation and gravity/Coriolis models
 
@@ -103,6 +148,20 @@ struct SimConfig {
     // Actuator Limits (from rocket_properties.yaml)
     double fin_delta_max_deg{20.0};      // Max fin deflection (deg)
     double fin_rate_max_deg_s{300.0};     // Max fin rate (deg/s)
+
+    // v8 P3.2 — delta-dependent aero. When true AND a fin_deflection_coeffs
+    // deck is loaded, the realised pitch/yaw control moment (and roll, when a
+    // roll_aero_coeffs deck is loaded) is sourced from the delta-swept aero
+    // data at the *commanded* equivalent deflection, instead of the allocator's
+    // own linear effectiveness estimate (cmds.allocated_aero_moment). Defaults
+    // OFF: the only committed deck (BA rocket_data_example) is synthetic and
+    // its effectiveness has not been validated against a golden trajectory
+    // (P4.1), so it is opt-in until calibrated.
+    bool delta_aero_from_table{false};
+
+    // v8 P3.3 — ordered list of staging/separation events. Empty = single-stage
+    // (no separation), preserving legacy behaviour.
+    std::vector<StageSeparation> stage_separations;
 };
 
 // ---------------------------------------------------------------------------
@@ -141,6 +200,13 @@ struct SimFrame {
     
     // Actuators
     std::vector<double> actuator_positions;
+
+    // v8 P3.3 — staging telemetry. stage_index is the number of separations that
+    // have fired (0 = first stage). separation_fired is true only on the step a
+    // separation event triggers; separation_label names that event.
+    int         stage_index{0};
+    bool        separation_fired{false};
+    std::string separation_label;
 
     // Full 103-variable data logger snapshot
     logging::LogRow log_row;

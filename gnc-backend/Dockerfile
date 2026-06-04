@@ -1,6 +1,10 @@
 # gnc-backend multi-stage Dockerfile
 # Stage 1: build with Conan + CMake
 # Stage 2: stripped runtime image with only the binary + config
+#
+# IMPORTANT: build context must be the REPO ROOT (gnc-backend links gnc-core as a
+# sibling via `add_subdirectory(../gnc-core ...)`), e.g.:
+#     docker build -f gnc-backend/Dockerfile -t gnc-backend .
 
 # -------- builder --------
 FROM ubuntu:24.04 AS builder
@@ -14,8 +18,10 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
 RUN pip3 install --break-system-packages --no-cache-dir "conan>=2.0"
 
 WORKDIR /src
-COPY . /src/gnc-backend
-COPY ../gnc-core /src/gnc-core
+# Context is the repo root: copy both sibling projects so the backend's
+# `add_subdirectory(../gnc-core ...)` resolves to /src/gnc-core.
+COPY gnc-backend /src/gnc-backend
+COPY gnc-core /src/gnc-core
 
 RUN cd /src/gnc-backend && \
     conan profile detect --force && \
