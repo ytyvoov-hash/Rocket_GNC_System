@@ -46,6 +46,10 @@
             "leeway_s": 60,
             "cache_ttl_s": 600
         },
+        "launch": {
+            "_comment": "Server-side ARM authority. The hardware key the client must present to arm. DEV ONLY: in release/flight builds set the GNC_HARDWARE_KEY env var (takes precedence) from the secret store and remove this line. Empty/absent => not provisioned => arm is refused (503).",
+            "hardware_key": "DEV-HARDWARE-KEY-CHANGE-ME"
+        },
         "minio": {
             "endpoint": "http://localhost:9000",
             "access_key": "minioadmin",

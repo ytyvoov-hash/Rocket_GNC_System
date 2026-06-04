@@ -115,20 +115,25 @@ bool dev_bypass_enabled()
 
 }  // namespace
 
-Role current_role(const drogon::HttpRequestPtr& req)
+Identity current_identity(const drogon::HttpRequestPtr& req)
 {
 #ifdef GNC_ALLOW_AUTH_BYPASS
-    if (dev_bypass_enabled()) return Role::Admin;
+    if (dev_bypass_enabled()) return Identity{Role::Admin, "dev-bypass"};
 #endif
     const std::string auth = req->getHeader("Authorization");
-    if (auth.empty()) return Role::Anonymous;
+    if (auth.empty()) return Identity{Role::Anonymous, {}};
 
     AuthOutcome out = verifier().verify(strip_bearer(auth));
     if (!out.ok) {
         LOG_DEBUG << "[auth] token rejected: " << out.error;
-        return Role::Anonymous;
+        return Identity{Role::Anonymous, {}};
     }
-    return out.role;
+    return Identity{out.role, out.subject};
+}
+
+Role current_role(const drogon::HttpRequestPtr& req)
+{
+    return current_identity(req).role;
 }
 
 void enforce_min_role(Role min_role,

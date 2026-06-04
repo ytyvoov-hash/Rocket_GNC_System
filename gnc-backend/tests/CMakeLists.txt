@@ -8,9 +8,11 @@ add_executable(gnc_backend_unit_tests
     smoke_test.cc
     validator_test.cc
     auth_jwt_test.cc
-    # JwtVerifier lives outside gnc_backend_core (which is parser/validator
-    # only), so compile it directly into the test binary.
+    launch_authority_test.cc
+    # JwtVerifier and LaunchAuthority live outside gnc_backend_core (which is
+    # parser/validator only), so compile them directly into the test binary.
     ${CMAKE_CURRENT_SOURCE_DIR}/../src/auth/JwtVerifier.cc
+    ${CMAKE_CURRENT_SOURCE_DIR}/../src/launch/LaunchAuthority.cc
 )
 
 target_include_directories(gnc_backend_unit_tests PRIVATE

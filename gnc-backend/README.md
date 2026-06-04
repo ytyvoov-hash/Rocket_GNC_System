@@ -101,7 +101,9 @@ or `403` (authenticated but under-privileged).
 | Read endpoints (`GET` templates/missions/hardware/libraries/sim-log) | `viewer` |
 | `POST`/`PUT`/`PATCH`/`POST …/validate`/`…/duplicate`, `POST /simulation/*` | `engineer` |
 | `PUT /hardware/assignments`, `POST /missions/{id}/lock`, `GET /audit` | `operator` |
-| `DELETE /templates/{id}` | `admin` |
+| `GET /api/v1/launch/state` | `viewer` |
+| `POST /api/v1/launch/{arm,launch,abort}` | `operator` |
+| `DELETE /templates/{id}`, `POST /api/v1/launch/reset` | `admin` |
 
 ### Verifier configuration (`custom_config.keycloak`)
 
@@ -132,10 +134,46 @@ and running with `GNC_AUTH_DISABLED=1` makes every request resolve to `admin`
 `-DGNC_ALLOW_AUTH_BYPASS=OFF`, which compiles the bypass out of the binary
 entirely so the env var has no effect.
 
-> ARM / LAUNCH / ABORT are not yet server endpoints — the launch interlock is
-> still enforced only in the frontend. A server-authenticated
-> ARM/LAUNCH/ABORT path (operator role + hardware-key check) is the next slice
-> of this work.
+### Launch interlock (server-side ARM / LAUNCH / ABORT)
+
+The launch authority is now server-side and the single source of truth — the
+frontend Redux `launchState`/`hardwareKeyPresent` is advisory only. State
+machine (`launch/LaunchAuthority`):
+
+```
+Idle --arm(valid key)--> Armed --launch--> Launched
+  ^                        |                   |
+  | reset (admin)          +-------abort--------+
+ Aborted <----------- abort (from any state) ---+
+ Aborted --arm(valid key)--> Armed   (re-arm after a scrub)
+```
+
+| Endpoint | Role | Effect |
+|----------|------|--------|
+| `GET  /api/v1/launch/state`  | `viewer`   | current snapshot |
+| `POST /api/v1/launch/arm`    | `operator` | `{ "hardware_key": "…" }` (or `X-Hardware-Key`); → `ARMED` |
+| `POST /api/v1/launch/launch` | `operator` | requires `ARMED`; → `LAUNCHED` |
+| `POST /api/v1/launch/abort`  | `operator` | `{ "reason": "…" }`; always honoured; → `ABORTED` |
+| `POST /api/v1/launch/reset`  | `admin`    | recover to `IDLE` |
+
+Arming requires a **hardware key** the server recognises (constant-time
+compared). Resolution order: env `GNC_HARDWARE_KEY` (use this in release/flight,
+injected from the secret store) → `custom_config.launch.hardware_key` (dev
+convenience). If neither is set the authority is **not provisioned** and `arm`
+returns `503` — you cannot arm a launcher whose key the server does not know.
+Failure codes: `403` wrong key, `409` illegal transition, `503` not
+provisioned. The verified JWT subject is recorded as the actor in the audit
+log.
+
+> Note: this is the ground-system command authority. Wiring it to a physical
+> flight-computer ARM/pyro channel (Path B firmware) remains future work.
+
+### Audit identity
+
+The audit trail (`POST/PUT/PATCH/DELETE` post-handler) now records the actor and
+role from the **signature-verified JWT** (`sub` + highest realm role), not the
+previously trusted `X-Forwarded-User` / `X-User-Role` headers — so the audit
+log itself is no longer spoofable.
 
 ## Status (2026-05)
 

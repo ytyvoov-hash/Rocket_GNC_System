@@ -14,10 +14,18 @@
 
 namespace gnc::backend {
 
-// Verified role for this request: the role from a valid Bearer JWT, else
+// Verified caller identity for this request, derived from a signature-checked
+// Bearer JWT. `subject` is the token `sub` (empty when unauthenticated).
+struct Identity {
+    Role        role = Role::Anonymous;
+    std::string subject;
+};
+
+// Verified identity/role for this request: from a valid Bearer JWT, else
 // Anonymous. Only when the build enables the dev bypass (GNC_ALLOW_AUTH_BYPASS)
 // AND env GNC_AUTH_DISABLED=1 is set does this return Admin without a token.
-Role current_role(const drogon::HttpRequestPtr& req);
+Identity current_identity(const drogon::HttpRequestPtr& req);
+Role     current_role(const drogon::HttpRequestPtr& req);
 
 // Shared enforcement: continue the chain iff current_role(req) >= min_role,
 // otherwise short-circuit with 401 (no/invalid token) or 403 (insufficient).
